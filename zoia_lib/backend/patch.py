@@ -36,7 +36,7 @@ class Patch:
         self._create_backend_directories()
 
         # Library version
-        self._version = 2.0
+        self._version = 2.1
 
     def _create_backend_directories(self):
         """Creates the necessary directories that will store
@@ -71,6 +71,18 @@ class Patch:
             os.path.join(self.back_path, "Samples")
         ):
             os.mkdir(os.path.join(self.back_path, "Samples"))
+
+        # Case 4: 2.0 adds Art Cache
+        if self.back_path is not None and not os.path.exists(
+            os.path.join(self.back_path, "art_cache")
+        ):
+            os.mkdir(os.path.join(self.back_path, "art_cache"))
+
+        # Case 5: 2.1 adds Supermodules
+        if self.back_path is not None and not os.path.exists(
+            os.path.join(self.back_path, "Editor")
+        ):
+            os.mkdir(os.path.join(self.back_path, "Editor"))
 
     def get_backend_path(self):
         """Getter method to retrieve the backend path as

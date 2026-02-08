@@ -1,11 +1,13 @@
 import datetime
 import json
 import os
+import copy
 from PySide6.QtWidgets import (
     QMainWindow,
     QComboBox,
     QHBoxLayout,
     QVBoxLayout,
+    QGridLayout,
     QLabel,
     QPushButton,
     QListWidget,
@@ -23,19 +25,86 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QScrollArea,
     QFormLayout,
+    QAbstractItemView,
+    QLineEdit,
+    QMenu,
+    QCheckBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QMimeData
+from PySide6.QtGui import QDrag
 from NodeGraphQt import NodeGraph, BaseNode, setup_context_menu
 from zoia_lib.backend.patch_binary import PatchBinary
 from zoia_lib.backend.patch_encode import PatchEncoder
 from zoia_lib.backend.utilities import exit_after, meipass
+
+class PageLayoutCell(QLabel):
+    def __init__(self, page_index, position, on_drop, parent=None):
+        super().__init__(parent)
+        self._page_index = page_index
+        self._position = position
+        self._on_drop = on_drop
+        self.module_number = None
+        self._drag_start_pos = None
+        self.setAcceptDrops(True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.module_number is None:
+            return
+        if not (event.buttons() & Qt.LeftButton):
+            return
+        if self._drag_start_pos is None:
+            return
+        if (event.pos() - self._drag_start_pos).manhattanLength() < 8:
+            return
+        mime = QMimeData()
+        mime.setData(
+            "application/x-zoia-module",
+            f"{self.module_number}:{self._position}".encode("utf-8"),
+        )
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.MoveAction)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("application/x-zoia-module"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat("application/x-zoia-module"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat("application/x-zoia-module"):
+            event.ignore()
+            return
+        payload = bytes(event.mimeData().data("application/x-zoia-module")).decode("utf-8")
+        try:
+            module_number, origin_pos = payload.split(":")
+            module_number = int(module_number)
+            origin_pos = int(origin_pos)
+        except (ValueError, AttributeError):
+            event.ignore()
+            return
+        if callable(self._on_drop):
+            self._on_drop(module_number, origin_pos, self._page_index, self._position)
+        event.acceptProposedAction()
 
 class PatchBuilderEditor(QMainWindow):
     """Separate window for building a patch by selecting modules and configuring them."""
     def __init__(self, msg=None, save=None, window=None, patch_dict=None, patch_id=None, on_close=None):
         super().__init__(window)
         self.setWindowTitle("Patch Builder - New Patch")
-        self.resize(1300, 700)
+        self.resize(1300, 1300)
+        self.setWindowState(self.windowState() | Qt.WindowMaximized)
         self.msg = msg
         self.window = window
         self.patch_dict = patch_dict  # For editing existing patches
@@ -53,6 +122,9 @@ class PatchBuilderEditor(QMainWindow):
 
         self.selected_modules = []  # List of (module_id, config_dict)
         self.connections = []
+        self.module_overrides = {}
+        self._pending_page_names = {}
+        self._pending_pages = None
 
         # Create main container to hold everything
         main_container = QWidget()
@@ -64,6 +136,8 @@ class PatchBuilderEditor(QMainWindow):
         # Module list
         module_list_layout = QVBoxLayout()
         module_label = QLabel("Available Modules:")
+        self.module_search = QLineEdit()
+        self.module_search.setPlaceholderText("Search modules...")
         self.module_list = QTreeWidget()
         self.module_list.setHeaderHidden(True)
         categories = {}
@@ -81,22 +155,34 @@ class PatchBuilderEditor(QMainWindow):
             categories[category].addChild(child)
         # self.module_list.expandAll()
         module_list_layout.addWidget(module_label)
+        module_list_layout.addWidget(self.module_search)
         module_list_layout.addWidget(self.module_list)
+        self.supermodule_category = QTreeWidgetItem(["Supermodules"])
+        self.supermodule_category.setData(0, 1, "supermodule_category")
+        self.module_list.addTopLevelItem(self.supermodule_category)
         self.add_module_btn = QPushButton("Add Module to Patch →")
         module_list_layout.addWidget(self.add_module_btn)
-        self.insert_module_btn = QPushButton("Insert Module Before Selected →")
-        module_list_layout.addWidget(self.insert_module_btn)
-        main_layout.addLayout(module_list_layout)
+
+        self.supermodules = []
+        self.supermodule_delete_btn = QPushButton("Delete Selected Supermodule")
+        self.supermodule_delete_btn.setEnabled(False)
+        module_list_layout.addWidget(self.supermodule_delete_btn)
+        main_layout.addLayout(module_list_layout, 1)
 
         # Selected modules
         selected_layout = QVBoxLayout()
         selected_label = QLabel("Patch Modules:")
         self.selected_list = QListWidget()
+        self.selected_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.selected_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.selected_list.setContextMenuPolicy(Qt.CustomContextMenu)
         selected_layout.addWidget(selected_label)
         selected_layout.addWidget(self.selected_list)
-        self.remove_module_btn = QPushButton("Remove Selected Module")
+        self.remove_module_btn = QPushButton("Remove Selected Module(s)")
         selected_layout.addWidget(self.remove_module_btn)
-        main_layout.addLayout(selected_layout)
+        self.save_supermodule_btn = QPushButton("Save Selected as Supermodule")
+        selected_layout.addWidget(self.save_supermodule_btn)
+        main_layout.addLayout(selected_layout, 1)
 
         # Module details panel (right side)
         details_layout = QVBoxLayout()
@@ -109,21 +195,33 @@ class PatchBuilderEditor(QMainWindow):
         self.details_scroll.setWidget(details_widget)
         details_layout.addWidget(details_label)
         details_layout.addWidget(self.details_scroll)
-        main_layout.addLayout(details_layout)
+        main_layout.addLayout(details_layout, 2)
 
         self.routing_graph = None
         self.routing_window = None
         self.routing_window_layout = None
         self.routing_window_placeholder = None
         self.routing_window_graph_widget = None
+        self._routing_is_building = False
+        self._routing_port_meta = {}
+        self.page_layout_window = None
+        self.page_layout_window_layout = None
+        self.page_layout_window_placeholder = None
+        self.page_layout_window_scroll = None
+        self.page_layout_window_container = None
+        self.page_layout_controls = None
+        self.page_layout_add_btn = None
+        self.page_layout_remove_btn = None
         container_layout.addLayout(main_layout, 1)
 
         # Bottom button layout
         bottom_layout = QHBoxLayout()
         self.toggle_routing_btn = QPushButton("Show Expanded Patch")
+        self.toggle_page_layout_btn = QPushButton("Show Page Layout")
         self.export_btn = QPushButton("Export Patch")
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.toggle_routing_btn)
+        bottom_layout.addWidget(self.toggle_page_layout_btn)
         bottom_layout.addWidget(self.export_btn)
         container_layout.addLayout(bottom_layout, 0)
         
@@ -132,12 +230,22 @@ class PatchBuilderEditor(QMainWindow):
 
         # Connections
         self.add_module_btn.clicked.connect(self.add_selected_module)
-        self.insert_module_btn.clicked.connect(self.insert_selected_module)
+        self.module_list.itemDoubleClicked.connect(lambda _item: self.add_selected_module())
         self.remove_module_btn.clicked.connect(self.remove_selected_module)
+        self.save_supermodule_btn.clicked.connect(self.save_selected_supermodule)
+        self.supermodule_delete_btn.clicked.connect(self.delete_selected_supermodule)
+        self.module_list.currentItemChanged.connect(self._update_supermodule_controls)
+        self.module_search.textChanged.connect(self._filter_module_tree)
         self.selected_list.itemSelectionChanged.connect(self.on_module_selected)
+        self.selected_list.model().rowsAboutToBeMoved.connect(self._on_modules_about_to_move)
+        self.selected_list.model().rowsMoved.connect(self._on_modules_moved)
+        self.selected_list.customContextMenuRequested.connect(self._open_module_context_menu)
         self.export_btn.clicked.connect(self.export_patch)
         self.toggle_routing_btn.clicked.connect(self.toggle_routing_view)
+        self.toggle_page_layout_btn.clicked.connect(self.toggle_page_layout_view)
         
+        self._load_module_overrides()
+
         # If editing an existing patch, load its modules
         if self.patch_dict:
             self.setWindowTitle("Patch Editor - {}".format(self.patch_dict.get("name", "Untitled")))
@@ -147,12 +255,17 @@ class PatchBuilderEditor(QMainWindow):
             self.connections = []
             self._init_new_patch_defaults()
 
+        self._load_supermodules()
+
     def add_selected_module(self):
         item = self.module_list.currentItem()
         if not item:
             return
         mod_id = item.data(0, 1)
-        if mod_id == "category" or mod_id is None:
+        if mod_id in ("category", "supermodule_category") or mod_id is None:
+            return
+        if mod_id == "supermodule":
+            self._add_supermodule_from_tree(item)
             return
         mod = self.module_index[mod_id]
         # For now, just add with default config
@@ -162,20 +275,263 @@ class PatchBuilderEditor(QMainWindow):
         self.selected_modules.append((mod_id, config))
         self.selected_list.addItem(f"{mod['name']} ({mod['category']})")
         self.selected_list.setCurrentRow(insert_row)
+        self._recalc_module_blocks_and_params(insert_row)
         self._refresh_routing_view()
 
-    def insert_selected_module(self):
+    def _filter_module_tree(self, text):
+        query = (text or "").strip().lower()
+        root_count = self.module_list.topLevelItemCount()
+        for i in range(root_count):
+            category = self.module_list.topLevelItem(i)
+            if category is None:
+                continue
+            visible_children = 0
+            for j in range(category.childCount()):
+                child = category.child(j)
+                if child is None:
+                    continue
+                label = (child.text(0) or "").lower()
+                match = not query or query in label
+                if not match and category == self.supermodule_category:
+                    super_index = child.data(0, Qt.UserRole)
+                    if super_index is not None and 0 <= super_index < len(self.supermodules):
+                        supermod = self.supermodules[super_index]
+                        if isinstance(supermod, dict):
+                            for entry in supermod.get("modules", []):
+                                name = entry.get("name") or ""
+                                if query in str(name).lower():
+                                    match = True
+                                    break
+                child.setHidden(not match)
+                if match:
+                    visible_children += 1
+            category.setHidden(visible_children == 0)
+            if query:
+                category.setExpanded(True)
+            else:
+                category.setExpanded(False)
+
+    def _on_modules_about_to_move(self, _parent, _start, _end, _destination, _row):
+        self._pre_reorder_indices = list(range(len(self.selected_modules)))
+        self._pre_reorder_modules = list(self.selected_modules)
+
+    def _on_modules_moved(self, _parent, start, end, _destination, row):
+        if not getattr(self, "_pre_reorder_indices", None):
+            return
+        indices = self._pre_reorder_indices
+        segment = indices[start:end + 1]
+        del indices[start:end + 1]
+        insert_at = row
+        if insert_at > start:
+            insert_at -= len(segment)
+        for offset, value in enumerate(segment):
+            indices.insert(insert_at + offset, value)
+
+        if len(indices) != len(self.selected_modules):
+            return
+
+        mapping = {old: new for new, old in enumerate(indices)}
+        new_order = [self._pre_reorder_modules[old] for old in indices]
+        self.selected_modules = new_order
+
+        if self.connections:
+            updated = []
+            for conn in self.connections:
+                try:
+                    source_mod, source_block = conn["source"].split(".")
+                    dest_mod, dest_block = conn["destination"].split(".")
+                    source_mod = mapping.get(int(source_mod), int(source_mod))
+                    dest_mod = mapping.get(int(dest_mod), int(dest_mod))
+                except (ValueError, AttributeError):
+                    updated.append(conn)
+                    continue
+                conn["source"] = f"{source_mod}.{source_block}"
+                conn["destination"] = f"{dest_mod}.{dest_block}"
+                try:
+                    conn["source_raw"] = int(source_mod)
+                    conn["dest_raw"] = int(dest_mod)
+                    conn["source_block_raw"] = int(source_block)
+                    conn["dest_block_raw"] = int(dest_block)
+                except ValueError:
+                    conn.pop("source_raw", None)
+                    conn.pop("source_block_raw", None)
+                    conn.pop("dest_raw", None)
+                    conn.pop("dest_block_raw", None)
+                updated.append(conn)
+            self.connections = updated
+
+        self._refresh_current_details()
+        self._refresh_routing_view()
+        self._pre_reorder_indices = None
+        self._pre_reorder_modules = None
+
+    def _open_module_context_menu(self, pos):
+        item = self.selected_list.itemAt(pos)
+        if item is None:
+            return
+        menu = QMenu(self.selected_list)
+        duplicate_action = menu.addAction("Duplicate Module")
+        action = menu.exec(self.selected_list.mapToGlobal(pos))
+        if action == duplicate_action:
+            row = self.selected_list.row(item)
+            self._duplicate_module_at_index(row)
+
+    def _duplicate_module_at_index(self, index):
+        if index < 0 or index >= len(self.selected_modules):
+            return
+        mod_id, config = self.selected_modules[index]
+        new_config = copy.deepcopy(config)
+        new_config.pop("position", None)
+        self._assign_module_position(new_config, mod_id=mod_id)
+        insert_row = index + 1
+        self.selected_modules.insert(insert_row, (mod_id, new_config))
+        display_name = self._module_display_name(mod_id, new_config)
+        self.selected_list.insertItem(
+            insert_row, f"{display_name} ({self.module_index[mod_id]['category']})"
+        )
+        self._shift_connections(insert_row, 1)
+        self.selected_list.setCurrentRow(insert_row)
+        self._recalc_module_blocks_and_params(insert_row)
+        self._refresh_routing_view()
+
+    def remove_selected_module(self):
+        """Remove the currently selected module from the patch."""
+        selected_items = self.selected_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Please select a module to remove.")
+            return
+        rows = sorted({self.selected_list.row(item) for item in selected_items}, reverse=True)
+        for row in rows:
+            if row < 0 or row >= len(self.selected_modules):
+                continue
+            self.selected_list.takeItem(row)
+            self.selected_modules.pop(row)
+            self._shift_connections(row, -1)
+        self.clear_module_details()
+        self._refresh_routing_view()
+
+    def save_selected_supermodule(self):
+        selected_items = self.selected_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Select one or more modules to save.")
+            return
+
+        selected_rows = sorted({self.selected_list.row(item) for item in selected_items})
+        name, ok = QInputDialog.getText(
+            self, "Supermodule Name", "Enter a name for this supermodule:"
+        )
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+
+        modules = []
+        index_map = {old: new for new, old in enumerate(selected_rows)}
+        for old_index in selected_rows:
+            mod_id, config = self.selected_modules[old_index]
+            display_name = self._module_display_name(mod_id, config)
+            modules.append(
+                {
+                    "mod_id": str(mod_id),
+                    "name": display_name,
+                    "config": copy.deepcopy(config),
+                }
+            )
+
+        connections = []
+        for conn in self.connections:
+            source_mod, source_block = conn["source"].split(".")
+            dest_mod, dest_block = conn["destination"].split(".")
+            source_mod = int(source_mod)
+            dest_mod = int(dest_mod)
+            if source_mod in index_map and dest_mod in index_map:
+                new_conn = copy.deepcopy(conn)
+                new_conn["source"] = f"{index_map[source_mod]}.{source_block}"
+                new_conn["destination"] = f"{index_map[dest_mod]}.{dest_block}"
+                try:
+                    new_conn["source_raw"] = int(index_map[source_mod])
+                    new_conn["dest_raw"] = int(index_map[dest_mod])
+                    new_conn["source_block_raw"] = int(source_block)
+                    new_conn["dest_block_raw"] = int(dest_block)
+                except ValueError:
+                    new_conn.pop("source_raw", None)
+                    new_conn.pop("source_block_raw", None)
+                    new_conn.pop("dest_raw", None)
+                    new_conn.pop("dest_block_raw", None)
+                connections.append(new_conn)
+
+        supermodule = {
+            "name": name,
+            "modules": modules,
+            "connections": connections,
+            "created_at": "{:%Y-%m-%dT%H:%M:%S}".format(datetime.datetime.now()),
+        }
+
+        existing_index = None
+        for idx, item in enumerate(self.supermodules):
+            if item.get("name", "").strip().lower() == name.lower():
+                existing_index = idx
+                break
+        if existing_index is not None:
+            choice = QMessageBox.question(
+                self,
+                "Overwrite Supermodule",
+                "A supermodule with this name already exists. Overwrite it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                return
+            self.supermodules[existing_index] = supermodule
+        else:
+            self.supermodules.append(supermodule)
+
+        self._save_supermodules()
+        self._refresh_supermodule_list()
+
+    def delete_selected_supermodule(self):
         item = self.module_list.currentItem()
-        if not item:
+        if not item or item.data(0, 1) != "supermodule":
             return
-        mod_id = item.data(0, 1)
-        if mod_id == "category" or mod_id is None:
+        super_index = item.data(0, Qt.UserRole)
+        if super_index is None or super_index < 0 or super_index >= len(self.supermodules):
             return
-        insert_row = self.selected_list.currentRow()
-        if insert_row < 0:
-            insert_row = len(self.selected_modules)
-        mod = self.module_index[mod_id]
-        config = self._default_module_config(mod_id)
+        choice = QMessageBox.question(
+            self,
+            "Delete Supermodule",
+            "Delete the selected supermodule?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if choice != QMessageBox.Yes:
+            return
+        self.supermodules.pop(super_index)
+        self._save_supermodules()
+        self._refresh_supermodule_list()
+
+    def _insert_supermodule(self, supermodule, insert_row, keep_connections):
+        modules = supermodule.get("modules", [])
+        if not modules:
+            return
+
+        invalid = [
+            entry.get("mod_id")
+            for entry in modules
+            if str(entry.get("mod_id")) not in self.module_index
+        ]
+        if invalid:
+            QMessageBox.warning(
+                self,
+                "Supermodule Error",
+                "This supermodule contains modules that are not available in the current module list.",
+            )
+            return
+
+        valid_modules = [
+            entry for entry in modules if str(entry.get("mod_id")) in self.module_index
+        ]
+        if not valid_modules:
+            return
+
         preferred_start = 0
         preferred_page = 0
         if 0 <= insert_row < len(self.selected_modules):
@@ -183,26 +539,140 @@ class PatchBuilderEditor(QMainWindow):
             if ref_cfg.get("position"):
                 preferred_start = ref_cfg["position"][0]
             preferred_page = ref_cfg.get("page", 0)
-        self._assign_module_position(
-            config, mod_id=mod_id, preferred_start=preferred_start, preferred_page=preferred_page
-        )
-        self.selected_modules.insert(insert_row, (mod_id, config))
-        self.selected_list.insertItem(insert_row, f"{mod['name']} ({mod['category']})")
-        self._shift_connections(insert_row, 1)
-        self.selected_list.setCurrentRow(insert_row)
+
+        self._shift_connections(insert_row, len(valid_modules))
+
+        for offset, entry in enumerate(valid_modules):
+            mod_id = str(entry.get("mod_id"))
+            config = copy.deepcopy(entry.get("config", {}))
+            config.pop("position", None)
+            config["page"] = preferred_page
+            self._assign_module_position(
+                config,
+                mod_id=mod_id,
+                preferred_start=preferred_start,
+                preferred_page=preferred_page,
+            )
+            self.selected_modules.insert(insert_row + offset, (mod_id, config))
+            display_name = self._module_display_name(mod_id, config)
+            self.selected_list.insertItem(
+                insert_row + offset, f"{display_name} ({self.module_index[mod_id]['category']})"
+            )
+            self._recalc_module_blocks_and_params(insert_row + offset)
+            if config.get("position"):
+                preferred_start = config["position"][0] + self._module_span_length(config, mod_id)
+
+        if keep_connections:
+            for conn in supermodule.get("connections", []):
+                new_conn = copy.deepcopy(conn)
+                source_mod, source_block = new_conn["source"].split(".")
+                dest_mod, dest_block = new_conn["destination"].split(".")
+                try:
+                    source_mod = int(source_mod) + insert_row
+                    dest_mod = int(dest_mod) + insert_row
+                except ValueError:
+                    continue
+                new_conn["source"] = f"{source_mod}.{source_block}"
+                new_conn["destination"] = f"{dest_mod}.{dest_block}"
+                try:
+                    new_conn["source_raw"] = int(source_mod)
+                    new_conn["dest_raw"] = int(dest_mod)
+                    new_conn["source_block_raw"] = int(source_block)
+                    new_conn["dest_block_raw"] = int(dest_block)
+                except ValueError:
+                    new_conn.pop("source_raw", None)
+                    new_conn.pop("source_block_raw", None)
+                    new_conn.pop("dest_raw", None)
+                    new_conn.pop("dest_block_raw", None)
+                self.connections.append(new_conn)
+
+    def _add_supermodule_from_tree(self, item):
+        super_index = item.data(0, Qt.UserRole)
+        if super_index is None or super_index < 0 or super_index >= len(self.supermodules):
+            return
+        supermodule = self.supermodules[super_index]
+
+        insert_row = len(self.selected_modules)
+        self._insert_supermodule(supermodule, insert_row, True)
+        if insert_row < self.selected_list.count():
+            self.selected_list.setCurrentRow(insert_row)
         self._refresh_routing_view()
 
-    def remove_selected_module(self):
-        """Remove the currently selected module from the patch."""
-        current_row = self.selected_list.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "No Selection", "Please select a module to remove.")
+    def _supermodule_storage_path(self):
+        back_path = getattr(self.patch_save, "back_path", None)
+        if not back_path:
+            return None
+        return os.path.join(back_path, "Editor", "supermodules.json")
+
+    def _load_supermodules(self):
+        path = self._supermodule_storage_path()
+        if not path or not os.path.exists(path):
+            self._refresh_supermodule_list()
             return
-        self.selected_list.takeItem(current_row)
-        self.selected_modules.pop(current_row)
-        self._shift_connections(current_row, -1)
-        self.clear_module_details()
-        self._refresh_routing_view()
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            raw = data.get("supermodules", [])
+            if isinstance(raw, dict):
+                try:
+                    ordered = sorted(raw.items(), key=lambda pair: int(pair[0]))
+                except (TypeError, ValueError):
+                    ordered = raw.items()
+                raw = [value for _, value in ordered]
+            if not isinstance(raw, list):
+                raw = []
+            normalized = []
+            for entry in raw:
+                if isinstance(entry, dict):
+                    name = entry.get("name")
+                    if name is not None and not isinstance(name, str):
+                        entry["name"] = str(name)
+                    normalized.append(entry)
+                else:
+                    normalized.append({"name": str(entry)})
+            self.supermodules = normalized
+        except (OSError, json.JSONDecodeError):
+            self.supermodules = []
+        self._refresh_supermodule_list()
+
+    def _save_supermodules(self):
+        path = self._supermodule_storage_path()
+        if not path:
+            QMessageBox.warning(
+                self,
+                "Supermodule Save Failed",
+                "Could not locate the backend directory to save supermodules.",
+            )
+            return
+        try:
+            with open(path, "w") as f:
+                json.dump({"supermodules": self.supermodules}, f, indent=2)
+        except OSError:
+            QMessageBox.warning(self, "Supermodule Save Failed", "Unable to save supermodules.")
+
+    def _refresh_supermodule_list(self):
+        self.supermodule_category.takeChildren()
+        for idx, item in enumerate(self.supermodules):
+            if isinstance(item, dict):
+                name = item.get("name")
+            else:
+                name = item
+            if not isinstance(name, str) or not name.strip():
+                name = f"Supermodule {idx + 1}"
+            else:
+                name = name.strip()
+            entry = QTreeWidgetItem([name])
+            entry.setText(0, name)
+            entry.setData(0, 1, "supermodule")
+            entry.setData(0, Qt.UserRole, idx)
+            self.supermodule_category.addChild(entry)
+        self.supermodule_category.setExpanded(False)
+        self._update_supermodule_controls()
+
+    def _update_supermodule_controls(self):
+        item = self.module_list.currentItem()
+        is_supermodule = bool(item) and item.data(0, 1) == "supermodule"
+        self.supermodule_delete_btn.setEnabled(is_supermodule)
 
     def on_module_selected(self):
         """Handle module selection in the selected list."""
@@ -231,6 +701,15 @@ class PatchBuilderEditor(QMainWindow):
         # CPU info
         cpu_label = QLabel(f"CPU: {mod['cpu']}")
         self.details_layout.addWidget(cpu_label)
+
+        override_row = QHBoxLayout()
+        save_override_btn = QPushButton("Save as Default Override")
+        save_override_btn.clicked.connect(lambda: self._save_module_override(mod_id, config))
+        reset_btn = QPushButton("Reset to Module Defaults")
+        reset_btn.clicked.connect(lambda: self._reset_options(module_index))
+        override_row.addWidget(save_override_btn)
+        override_row.addWidget(reset_btn)
+        self.details_layout.addLayout(override_row)
 
         options_group = self._build_options_section(mod_id, config, module_index)
         if options_group:
@@ -288,6 +767,7 @@ class PatchBuilderEditor(QMainWindow):
             spinbox.blockSignals(True)
             spinbox.setValue(value / 100.0)
             spinbox.blockSignals(False)
+            self._update_param_display(control_key)
 
     def on_parameter_spinbox_changed(self, value):
         """Handle spinbox changes and update slider in real time."""
@@ -309,6 +789,312 @@ class PatchBuilderEditor(QMainWindow):
             slider.blockSignals(True)
             slider.setValue(int(value * 100))
             slider.blockSignals(False)
+            self._update_param_display(control_key)
+
+    def on_param_star_toggled(self, checked):
+        sender = self.sender()
+        if sender is None:
+            return
+        param_name = sender.property("param_name")
+        module_index = sender.property("module_index")
+        if param_name is None or module_index is None:
+            return
+        if module_index < 0 or module_index >= len(self.selected_modules):
+            return
+        _mod_id, config = self.selected_modules[module_index]
+        starred = config.get("starred_params")
+        if not isinstance(starred, set):
+            starred = set(starred) if starred else set()
+        if checked:
+            starred.add(param_name)
+        else:
+            starred.discard(param_name)
+        config["starred_params"] = starred
+        cc_map = config.get("starred_cc")
+        if not isinstance(cc_map, dict):
+            cc_map = dict(cc_map) if cc_map else {}
+        if not checked:
+            cc_map.pop(param_name, None)
+        config["starred_cc"] = cc_map
+        control_key = f"{module_index}_{param_name}"
+        controls = self.param_controls.get(control_key, {})
+        cc_spinbox = controls.get("cc_spinbox")
+        if cc_spinbox:
+            cc_spinbox.setEnabled(checked)
+            if checked and cc_spinbox.value() < 0:
+                self._assign_next_available_cc(module_index, param_name)
+            elif not checked:
+                cc_spinbox.blockSignals(True)
+                cc_spinbox.setValue(-1)
+                cc_spinbox.blockSignals(False)
+        if checked:
+            self._assign_next_available_cc(module_index, param_name)
+        self._enforce_unique_cc(module_index, param_name if checked else None)
+
+    def on_param_cc_changed(self, value):
+        sender = self.sender()
+        if sender is None:
+            return
+        param_name = sender.property("param_name")
+        module_index = sender.property("module_index")
+        if param_name is None or module_index is None:
+            return
+        if module_index < 0 or module_index >= len(self.selected_modules):
+            return
+        _mod_id, config = self.selected_modules[module_index]
+        if int(value) < 0:
+            return
+        cc_map = config.get("starred_cc")
+        if not isinstance(cc_map, dict):
+            cc_map = dict(cc_map) if cc_map else {}
+        cc_map[param_name] = int(value)
+        config["starred_cc"] = cc_map
+        self._enforce_unique_cc(module_index, param_name)
+
+    def _enforce_unique_cc(self, module_index, changed_param=None):
+        if module_index < 0 or module_index >= len(self.selected_modules):
+            return
+        _mod_id, config = self.selected_modules[module_index]
+        cc_map = config.get("starred_cc")
+        if not isinstance(cc_map, dict):
+            cc_map = dict(cc_map) if cc_map else {}
+
+        # Gather starred params for this module
+        starred_params = config.get("starred_params")
+        if not isinstance(starred_params, set):
+            starred_params = set(starred_params) if starred_params else set()
+
+        # Build control map for params in this module
+        controls_by_param = {}
+        for key, controls in self.param_controls.items():
+            if controls.get("module_index") == module_index:
+                pname = controls.get("param_name")
+                if pname:
+                    controls_by_param[pname] = controls
+
+        def _next_free(start=0):
+            for v in range(start, 128):
+                if v not in used:
+                    return v
+            return None
+
+        # Build used set across whole patch
+        used = self._all_starred_cc_values(exclude=(module_index, changed_param))
+
+        # Rebuild deterministically: prefer changed_param to keep its value
+        assigned = {}
+        if changed_param and changed_param in starred_params:
+            keep = int(cc_map.get(changed_param, 0))
+            assigned[changed_param] = keep
+            used.add(keep)
+
+        for pname in sorted(starred_params):
+            if pname == changed_param:
+                continue
+            desired = int(cc_map.get(pname, 0))
+            if desired in used:
+                desired = _next_free(0)
+            if desired is None:
+                continue
+            assigned[pname] = desired
+            used.add(desired)
+
+        # Apply assignments to config + UI
+        for pname, value in assigned.items():
+            cc_map[pname] = int(value)
+            controls = controls_by_param.get(pname, {})
+            spinbox = controls.get("cc_spinbox")
+            if spinbox and spinbox.value() != value:
+                spinbox.blockSignals(True)
+                spinbox.setValue(int(value))
+                spinbox.blockSignals(False)
+        config["starred_cc"] = cc_map
+
+    def _all_starred_cc_values(self, exclude=None):
+        used = set()
+        for idx, (_mod_id, config) in enumerate(self.selected_modules):
+            cc_map = config.get("starred_cc")
+            if not isinstance(cc_map, dict):
+                continue
+            for pname, value in cc_map.items():
+                if exclude and exclude == (idx, pname):
+                    continue
+                if value is None:
+                    continue
+                used.add(int(value))
+        return used
+
+    def _assign_next_available_cc(self, module_index, param_name):
+        if module_index < 0 or module_index >= len(self.selected_modules):
+            return
+        _mod_id, config = self.selected_modules[module_index]
+        cc_map = config.get("starred_cc")
+        if not isinstance(cc_map, dict):
+            cc_map = dict(cc_map) if cc_map else {}
+        if param_name in cc_map:
+            return
+        used = self._all_starred_cc_values()
+        control_key = f"{module_index}_{param_name}"
+        controls = self.param_controls.get(control_key, {})
+        spinbox = controls.get("cc_spinbox")
+        if spinbox:
+            desired = int(spinbox.value())
+            if desired >= 0 and desired not in used:
+                cc_map[param_name] = desired
+                config["starred_cc"] = cc_map
+                return
+        for v in range(128):
+            if v not in used:
+                cc_map[param_name] = v
+                config["starred_cc"] = cc_map
+                if spinbox:
+                    spinbox.blockSignals(True)
+                    spinbox.setValue(int(v))
+                    spinbox.blockSignals(False)
+                return
+    def _update_param_display(self, control_key):
+        controls = self.param_controls.get(control_key)
+        if not controls:
+            return
+        spinbox = controls.get("spinbox")
+        display_label = controls.get("display_label")
+        display_meta = controls.get("display_meta")
+        if not spinbox or not display_label:
+            return
+        display_label.setText(
+            self._format_param_display(spinbox.value(), display_meta)
+        )
+
+    def _param_display_meta(self, mod_id, param_name, options=None):
+        mod = self.module_index.get(str(mod_id), {})
+        defaults = mod.get("param_defaults") or mod.get("param_default") or {}
+        if isinstance(defaults, dict):
+            meta = defaults.get(param_name)
+            if isinstance(meta, dict):
+                return self._scale_param_meta(mod_id, param_name, meta, options)
+        return {"unit": None, "range": None, "value": None}
+
+    def _scale_param_meta(self, mod_id, param_name, meta, options):
+        unit = meta.get("unit")
+        display_range = meta.get("range")
+        scaled_range = display_range
+        if isinstance(display_range, (list, tuple)) and display_range and isinstance(options, dict):
+            if unit == "ms" and options.get("max_time") is not None:
+                factor = self._max_time_scale(options.get("max_time"), base_seconds=16.0)
+                if factor is not None and all(isinstance(v, (int, float)) for v in display_range):
+                    scaled_range = [float(v) * factor for v in display_range]
+            elif str(mod_id) == "30" and options.get("length_edit") == "on":
+                if param_name in ("loop_length", "start_position") and unit == "s":
+                    factor = self._max_time_scale(options.get("max_rec_time"), base_seconds=32.0)
+                    if factor is not None and all(isinstance(v, (int, float)) for v in display_range):
+                        scaled_range = [float(v) * factor for v in display_range]
+            elif str(mod_id) == "83":
+                if param_name in ("grain_size", "grain_position") and unit == "ms":
+                    factor = self._max_time_scale(options.get("max_grain_size"), base_seconds=16.0)
+                    if factor is not None and all(isinstance(v, (int, float)) for v in display_range):
+                        scaled_range = [float(v) * factor for v in display_range]
+        return {
+            "unit": meta.get("unit"),
+            "range": scaled_range,
+            "value": meta.get("value"),
+        }
+
+    @staticmethod
+    def _max_time_scale(max_time, base_seconds=16.0):
+        if max_time is None:
+            return None
+        if isinstance(max_time, (int, float)):
+            seconds = float(max_time)
+        elif isinstance(max_time, str):
+            s = max_time.strip().lower()
+            if s.endswith("ms"):
+                try:
+                    seconds = float(s[:-2].strip()) / 1000.0
+                except ValueError:
+                    return None
+            elif s.endswith("s"):
+                try:
+                    seconds = float(s[:-1].strip())
+                except ValueError:
+                    return None
+            else:
+                return None
+        else:
+            return None
+        return seconds / float(base_seconds) if seconds > 0 and base_seconds else None
+
+    def _format_param_display(self, value, meta):
+        unit = None
+        display_range = None
+        default_value = None
+        if isinstance(meta, dict):
+            unit = meta.get("unit")
+            display_range = meta.get("range")
+            default_value = meta.get("value")
+        if isinstance(display_range, (list, tuple)) and display_range:
+            first = display_range[0]
+            last = display_range[-1]
+            if (
+                unit == "dB"
+                and isinstance(first, (int, float))
+                and float(first) == float("-inf")
+                and float(value) <= 0.0
+            ):
+                return "-inf dB"
+            last_is_inf = isinstance(last, (int, float)) and float(last) == float("inf")
+            if last_is_inf and float(value) >= 1.0:
+                return f"inf {unit}".strip()
+            display_range = [
+                (487.68 if (unit == "s" and last_is_inf and isinstance(v, (int, float)) and float(v) == float("inf")) else
+                 120.0 if (isinstance(v, (int, float)) and float(v) == float("inf")) else
+                 -120.0 if (isinstance(v, (int, float)) and float(v) == float("-inf")) else v)
+                for v in display_range
+            ]
+        mapped = float(value)
+        if isinstance(display_range, (list, tuple)) and display_range:
+            if (
+                len(display_range) == 2
+                and all(isinstance(v, (int, float)) for v in display_range)
+            ):
+                lo, hi = float(display_range[0]), float(display_range[1])
+                mapped = lo + (hi - lo) * float(value)
+            elif (
+                len(display_range) == 5
+                and all(isinstance(v, (int, float)) for v in display_range)
+            ):
+                anchors = [0.0, 0.25, 0.5, 0.75, 1.0]
+                values = list(display_range)
+                if (
+                    unit == "dB"
+                    and isinstance(default_value, (int, float))
+                    and 0.0 not in values
+                    and 0.0 < float(default_value) < 1.0
+                ):
+                    pairs = list(zip(anchors, values))
+                    pairs.append((float(default_value), 0.0))
+                    pairs.sort(key=lambda item: item[0])
+                    anchors = [p[0] for p in pairs]
+                    values = [p[1] for p in pairs]
+                mapped = self._piecewise_interpolate(float(value), anchors, values)
+        if unit:
+            return f"{mapped:.1f} {unit}"
+        return f"{mapped:.1f}"
+
+    def _piecewise_interpolate(self, x, xs, ys):
+        if x <= xs[0]:
+            return float(ys[0])
+        if x >= xs[-1]:
+            return float(ys[-1])
+        for i in range(1, len(xs)):
+            x0, x1 = xs[i - 1], xs[i]
+            if x <= x1:
+                y0, y1 = float(ys[i - 1]), float(ys[i])
+                if x1 == x0:
+                    return y1
+                t = (x - x0) / (x1 - x0)
+                t = t ** 1.6
+                return y0 + (y1 - y0) * t
+        return float(ys[-1])
 
     def clear_module_details(self):
         """Clear the module details panel."""
@@ -376,7 +1162,7 @@ class PatchBuilderEditor(QMainWindow):
 
         try:
             encoder = PatchEncoder()
-            bin_data = encoder.encode(patch_dict)
+            bin_data = encoder.encode(patch_dict, param_order_mode="order")
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", str(e))
             return
@@ -467,6 +1253,8 @@ class PatchBuilderEditor(QMainWindow):
     def closeEvent(self, event):
         if self.routing_window and self.routing_window.isVisible():
             self.routing_window.close()
+        if self.page_layout_window and self.page_layout_window.isVisible():
+            self.page_layout_window.close()
         self._notify_close_refresh()
         super().closeEvent(event)
 
@@ -485,10 +1273,14 @@ class PatchBuilderEditor(QMainWindow):
         if not self.patch_dict or "modules" not in self.patch_dict:
             return
         
+        starred = self.patch_dict.get("starred", [])
         for module in self.patch_dict["modules"]:
             mod_id = str(module["mod_idx"])
             mod = self.module_index.get(mod_id)
             if mod:
+                self._normalize_options_order(mod_id, module)
+                self._remap_params_from_block_order(mod_id, module)
+                self._apply_starred_params(mod_id, module, starred)
                 # Store the full module dict from the patch (includes parameters)
                 self.selected_modules.append((mod_id, module))
                 # Show module with its name
@@ -532,14 +1324,25 @@ class PatchBuilderEditor(QMainWindow):
         starred = []
         if self.patch_dict:
             pages = self.patch_dict.get("pages", ["Page 1"])
-            starred = self.patch_dict.get("starred", [])
+        starred = self._build_starred_params()
 
         max_page = 0
         for _, config in self.selected_modules:
             max_page = max(max_page, int(config.get("page", 0)))
         while len(pages) < max_page + 1:
             pages.append("")
-        
+
+        if self._pending_pages is not None:
+            pages = list(self._pending_pages)
+        if self._pending_page_names:
+            pages = list(pages)
+            for idx, name in self._pending_page_names.items():
+                if idx < 0:
+                    continue
+                while len(pages) <= idx:
+                    pages.append("")
+                pages[idx] = name
+
         return {
             "size": 0,  # Encoder will calculate this
             "name": patch_name,
@@ -559,12 +1362,75 @@ class PatchBuilderEditor(QMainWindow):
             }
         }
 
+    def _build_starred_params(self):
+        starred = []
+        for index, (mod_id, config) in enumerate(self.selected_modules):
+            starred_params = config.get("starred_params")
+            if not starred_params:
+                continue
+            if not isinstance(starred_params, (set, list, tuple)):
+                continue
+            blocks = config.get("blocks") or self.module_index.get(str(mod_id), {}).get("blocks", {})
+            cc_map = config.get("starred_cc") if isinstance(config.get("starred_cc"), dict) else {}
+            for param_name in starred_params:
+                meta = blocks.get(param_name)
+                if not meta or not meta.get("isParam"):
+                    continue
+                position = meta.get("position")
+                if isinstance(position, list):
+                    if not position:
+                        continue
+                    block_idx = position[0]
+                else:
+                    block_idx = position
+                if block_idx is None:
+                    continue
+                midi_cc = cc_map.get(param_name, "None")
+                if midi_cc is None:
+                    midi_cc = "None"
+                starred.append(
+                    {"module": int(index), "block": int(block_idx), "midi_cc": midi_cc}
+                )
+        return starred
+
+    def _apply_starred_params(self, mod_id, module, starred):
+        if not isinstance(starred, list) or not starred:
+            return
+        mod_number = module.get("number")
+        if mod_number is None:
+            return
+        blocks = module.get("blocks") or self.module_index.get(str(mod_id), {}).get("blocks", {})
+        starred_params = set()
+        starred_cc = {}
+        for star in starred:
+            if star.get("module") != mod_number:
+                continue
+            block_idx = star.get("block")
+            if block_idx is None:
+                continue
+            for name, meta in blocks.items():
+                position = meta.get("position")
+                if isinstance(position, list) and block_idx in position:
+                    starred_params.add(name)
+                    if star.get("midi_cc") != "None":
+                        starred_cc[name] = int(star.get("midi_cc"))
+                    break
+                if isinstance(position, int) and block_idx == position:
+                    starred_params.add(name)
+                    if star.get("midi_cc") != "None":
+                        starred_cc[name] = int(star.get("midi_cc"))
+                    break
+        if starred_params:
+            module["starred_params"] = starred_params
+        if starred_cc:
+            module["starred_cc"] = starred_cc
+
     def _module_to_patch_format(self, mod_id, position, number, config):
         mod = self.module_index[mod_id]
         
         # Use edited parameters from config if available
         if config and "parameters" in config:
-            parameters = config["parameters"]
+            parameters = dict(config["parameters"])
         else:
             parameters = {}
         
@@ -577,6 +1443,13 @@ class PatchBuilderEditor(QMainWindow):
             params_count = config["params"]
         else:
             params_count = mod.get("params", len(parameters))
+
+        if config is not None and config.get("params_auto", True):
+            blocks = config.get("blocks") or mod.get("blocks", {})
+            for name, meta in blocks.items():
+                if meta.get("isParam") and name not in parameters:
+                    parameters[name] = float(self._param_default_value(mod_id, name))
+            params_count = len(parameters)
         if config and "size" in config:
             module_size = config["size"]
         else:
@@ -603,6 +1476,7 @@ class PatchBuilderEditor(QMainWindow):
             "options_binary": options_binary,
             "params": params_count,
             "parameters": parameters,
+            "parameters_raw": [],
             "blocks": config.get("blocks", {}) if config else {},
             "connections": config.get("connections", []) if config else [],
             "starred": config.get("starred", []) if config else []
@@ -649,66 +1523,6 @@ class PatchBuilderEditor(QMainWindow):
 
         connections_group = QGroupBox("Connections")
         connections_layout = QVBoxLayout(connections_group)
-
-        module_connections = [
-            (idx, c)
-            for idx, c in enumerate(self.connections)
-            if int(c["source"].split(".")[0]) == module_index
-            or int(c["destination"].split(".")[0]) == module_index
-        ]
-
-        if module_connections:
-            list_group = QGroupBox("Module Connections")
-            list_layout = QVBoxLayout(list_group)
-            conn_list = QListWidget()
-            for conn_index, conn in module_connections:
-                source_mod, source_block_val = conn["source"].split(".")
-                dest_mod, dest_block_val = conn["destination"].split(".")
-                strength_val = conn.get("strength", 100)
-
-                source_name = self._module_display_name(
-                    self.selected_modules[int(source_mod)][0],
-                    self.selected_modules[int(source_mod)][1],
-                )
-                dest_name = self._module_display_name(
-                    self.selected_modules[int(dest_mod)][0],
-                    self.selected_modules[int(dest_mod)][1],
-                )
-                source_block_name = self._block_name_for_module(
-                    self.selected_modules[int(source_mod)][0],
-                    self.selected_modules[int(source_mod)][1],
-                    int(source_block_val),
-                )
-                dest_block_name = self._block_name_for_module(
-                    self.selected_modules[int(dest_mod)][0],
-                    self.selected_modules[int(dest_mod)][1],
-                    int(dest_block_val),
-                )
-
-                label = (
-                    f"{source_name}.{source_block_val} ({source_block_name}) → "
-                    f"{dest_name}.{dest_block_val} ({dest_block_name}) ({strength_val}%)"
-                )
-                item = QListWidgetItem(label)
-                item.setData(1, conn_index)
-                conn_list.addItem(item)
-
-            if conn_list.count() > 0:
-                row_height = conn_list.sizeHintForRow(0)
-                if row_height <= 0:
-                    row_height = 22
-                conn_list.setMinimumHeight(row_height * 5 + conn_list.frameWidth() * 2)
-
-            remove_btn = QPushButton("Remove Selected Connection")
-            remove_btn.clicked.connect(
-                lambda: self._remove_selected_connection(conn_list, module_index)
-            )
-
-            list_layout.addWidget(conn_list)
-            list_layout.addWidget(remove_btn)
-            connections_layout.addWidget(list_group)
-        else:
-            connections_layout.addWidget(QLabel("No connections for this module"))
 
         add_group = QGroupBox("Add Connection")
         add_layout = QFormLayout(add_group)
@@ -791,6 +1605,83 @@ class PatchBuilderEditor(QMainWindow):
         add_layout.addRow(add_btn)
         connections_layout.addWidget(add_group)
 
+        module_connections = [
+            (idx, c)
+            for idx, c in enumerate(self.connections)
+            if int(c["source"].split(".")[0]) == module_index
+            or int(c["destination"].split(".")[0]) == module_index
+        ]
+
+        if module_connections:
+            list_group = QGroupBox("Module Connections")
+            list_layout = QVBoxLayout(list_group)
+            conn_list = QListWidget()
+            for conn_index, conn in module_connections:
+                source_mod, source_block_val = conn["source"].split(".")
+                dest_mod, dest_block_val = conn["destination"].split(".")
+                strength_val = conn.get("strength", 100)
+
+                source_name = self._module_display_name(
+                    self.selected_modules[int(source_mod)][0],
+                    self.selected_modules[int(source_mod)][1],
+                )
+                dest_name = self._module_display_name(
+                    self.selected_modules[int(dest_mod)][0],
+                    self.selected_modules[int(dest_mod)][1],
+                )
+                source_block_name = self._block_name_for_module(
+                    self.selected_modules[int(source_mod)][0],
+                    self.selected_modules[int(source_mod)][1],
+                    int(source_block_val),
+                )
+                dest_block_name = self._block_name_for_module(
+                    self.selected_modules[int(dest_mod)][0],
+                    self.selected_modules[int(dest_mod)][1],
+                    int(dest_block_val),
+                )
+
+                label = (
+                    f"{source_name}.{source_block_val} ({source_block_name}) → "
+                    f"{dest_name}.{dest_block_val} ({dest_block_name}) ({strength_val}%)"
+                )
+                item = QListWidgetItem(label)
+                item.setData(1, conn_index)
+                conn_list.addItem(item)
+
+            if conn_list.count() > 0:
+                row_height = conn_list.sizeHintForRow(0)
+                if row_height <= 0:
+                    row_height = 22
+                conn_list.setMinimumHeight(row_height * 5 + conn_list.frameWidth() * 2)
+
+            adjust_btn = QPushButton("Adjust Connection Strength")
+            adjust_btn.setEnabled(False)
+            adjust_btn.clicked.connect(
+                lambda: self._adjust_connection_strength(conn_list, module_index)
+            )
+            remove_btn = QPushButton("Remove Selected Connection")
+            remove_btn.setEnabled(False)
+            remove_btn.clicked.connect(
+                lambda: self._remove_selected_connection(conn_list, module_index)
+            )
+
+            def toggle_buttons():
+                has_selection = conn_list.currentItem() is not None
+                adjust_btn.setEnabled(has_selection)
+                remove_btn.setEnabled(has_selection)
+
+            conn_list.itemSelectionChanged.connect(toggle_buttons)
+            toggle_buttons()
+
+            list_layout.addWidget(conn_list)
+            btn_row = QHBoxLayout()
+            btn_row.addWidget(adjust_btn)
+            btn_row.addWidget(remove_btn)
+            list_layout.addLayout(btn_row)
+            connections_layout.addWidget(list_group)
+        else:
+            connections_layout.addWidget(QLabel("No connections for this module"))
+
         return connections_group
 
     def _add_connection(self, source_mod, source_block, dest_mod, dest_block, strength, module_index):
@@ -827,6 +1718,57 @@ class PatchBuilderEditor(QMainWindow):
             return
         if 0 <= conn_index < len(self.connections):
             self.connections.pop(conn_index)
+        self._refresh_current_details()
+        self._refresh_routing_view()
+
+    def _adjust_connection_strength(self, conn_list, module_index):
+        item = conn_list.currentItem()
+        if not item:
+            return
+        conn_index = item.data(1)
+        if conn_index is None:
+            return
+        if not (0 <= conn_index < len(self.connections)):
+            return
+
+        conn = self.connections[conn_index]
+        current_strength = int(conn.get("strength", 100))
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Adjust Connection Strength")
+        layout = QVBoxLayout(dialog)
+
+        slider = QSlider(Qt.Horizontal)
+        slider.setRange(0, 100)
+        slider.setValue(current_strength)
+
+        spin = QSpinBox()
+        spin.setRange(0, 100)
+        spin.setValue(current_strength)
+
+        slider.valueChanged.connect(spin.setValue)
+        spin.valueChanged.connect(slider.setValue)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("Apply")
+        cancel_btn = QPushButton("Cancel")
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+
+        layout.addWidget(QLabel("Strength (%):"))
+        layout.addWidget(slider)
+        layout.addWidget(spin)
+        layout.addLayout(btn_row)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        new_strength = int(slider.value())
+        conn["strength"] = new_strength
+        conn["strength_raw"] = new_strength * 100
         self._refresh_current_details()
         self._refresh_routing_view()
 
@@ -902,7 +1844,7 @@ class PatchBuilderEditor(QMainWindow):
         config["position"] = [0]
         config["page"] = new_page
 
-    def _default_module_config(self, mod_id):
+    def _default_module_config_base(self, mod_id):
         mod_id = str(mod_id)
         mod = self.module_index.get(mod_id, {})
         options_def = mod.get("options", {})
@@ -920,7 +1862,7 @@ class PatchBuilderEditor(QMainWindow):
         except Exception:
             blocks = mod.get("blocks", {})
 
-        return {
+        config = {
             "options": options,
             "options_binary": options_binary,
             "blocks": blocks,
@@ -930,6 +1872,103 @@ class PatchBuilderEditor(QMainWindow):
             "params_auto": True,
             "page": 0,
         }
+        return config
+
+    def _default_module_config(self, mod_id):
+        config = self._default_module_config_base(mod_id)
+        return self._apply_module_overrides(mod_id, config)
+
+    def _module_override_storage_path(self):
+        back_path = getattr(self.patch_save, "back_path", None)
+        if not back_path:
+            return None
+        return os.path.join(back_path, "Editor", "defaults.json")
+
+    def _load_module_overrides(self):
+        path = self._module_override_storage_path()
+        if not path or not os.path.exists(path):
+            self.module_overrides = {}
+            return
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            overrides = data.get("overrides", {})
+            if isinstance(overrides, dict):
+                self.module_overrides = overrides
+            else:
+                self.module_overrides = {}
+        except (OSError, json.JSONDecodeError):
+            self.module_overrides = {}
+
+    def _save_module_overrides(self):
+        path = self._module_override_storage_path()
+        if not path:
+            QMessageBox.warning(
+                self,
+                "Override Save Failed",
+                "Could not locate the backend directory to save overrides.",
+            )
+            return
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump({"overrides": self.module_overrides}, f, indent=2)
+        except OSError:
+            QMessageBox.warning(self, "Override Save Failed", "Unable to save overrides.")
+
+    def _apply_module_overrides(self, mod_id, config):
+        overrides = self.module_overrides.get(str(mod_id))
+        if not overrides:
+            return config
+
+        if isinstance(overrides, dict):
+            override_color = overrides.get("color")
+            if isinstance(override_color, str) and override_color:
+                config["color"] = override_color
+
+            override_options = overrides.get("options")
+            if isinstance(override_options, dict):
+                config["options"] = copy.deepcopy(override_options)
+                options_binary = {}
+                options_def = self.module_index.get(str(mod_id), {}).get("options", {})
+                for name, values in options_def.items():
+                    if not isinstance(values, list) or not values:
+                        continue
+                    selected = override_options.get(name, values[0])
+                    try:
+                        options_binary[name] = values.index(selected)
+                    except ValueError:
+                        options_binary[name] = 0
+                config["options_binary"] = options_binary
+                try:
+                    config["blocks"] = self._patch_binary._calc_blocks(
+                        {"mod_idx": int(mod_id), "version": 1, "options": config["options"]}
+                    )
+                except Exception:
+                    pass
+
+            override_params = overrides.get("parameters")
+            if isinstance(override_params, dict):
+                defaults = self._default_parameters_from_blocks(mod_id, config)
+                for name, value in override_params.items():
+                    if name in defaults:
+                        defaults[name] = float(value)
+                config["parameters"] = defaults
+
+        return config
+
+    def _save_module_override(self, mod_id, config):
+        if not mod_id or not config:
+            return
+        mod_id = str(mod_id)
+        override = {
+            "color": config.get("color", "Blue"),
+            "options": copy.deepcopy(config.get("options", {})),
+            "parameters": copy.deepcopy(config.get("parameters", {})),
+        }
+        self.module_overrides[mod_id] = override
+        self._save_module_overrides()
+        QMessageBox.information(self, "Default Override Saved", "Module defaults updated.")
 
     def _default_parameters_from_blocks(self, mod_id, config):
         blocks = {}
@@ -939,8 +1978,9 @@ class PatchBuilderEditor(QMainWindow):
             blocks = self.module_index.get(str(mod_id), {}).get("blocks", {})
 
         params = {}
-        for name, meta in blocks.items():
-            if meta.get("isParam"):
+        ordered = self._param_order(mod_id, blocks, use_order_field=False)
+        for name in ordered:
+            if name in blocks and blocks[name].get("isParam"):
                 params[name] = float(self._param_default_value(mod_id, name))
         return params
 
@@ -948,8 +1988,56 @@ class PatchBuilderEditor(QMainWindow):
         mod = self.module_index.get(str(mod_id), {})
         defaults = mod.get("param_defaults") or mod.get("param_default") or {}
         if isinstance(defaults, dict) and param_name in defaults:
-            return defaults[param_name]
+            entry = defaults[param_name]
+            if isinstance(entry, dict):
+                return entry.get("value", 0.0)
+            return entry
         return 0.0
+
+    def _param_order(self, mod_id, blocks, use_order_field=True):
+        mod = self.module_index.get(str(mod_id), {})
+        defaults = mod.get("param_defaults") or mod.get("param_default") or {}
+        if isinstance(defaults, dict) and defaults:
+            if use_order_field and any(
+                isinstance(meta, dict) and "order" in meta
+                for _, meta in defaults.items()
+            ):
+                items = list(defaults.items())
+                items.sort(
+                    key=lambda item: item[1].get("order", 0)
+                    if isinstance(item[1], dict)
+                    else 0
+                )
+                return [name for name, _ in items if name in blocks]
+            return [name for name in defaults.keys() if name in blocks]
+
+        return [name for name, meta in blocks.items() if meta.get("isParam")]
+
+    def _remap_params_from_block_order(self, mod_id, module):
+        params = module.get("parameters")
+        if not isinstance(params, dict) or not params:
+            return
+
+        blocks = module.get("blocks") or self.module_index.get(str(mod_id), {}).get("blocks", {})
+        block_order = [name for name, meta in blocks.items() if meta.get("isParam")]
+        if not block_order:
+            return
+
+        order_list = self._param_order(mod_id, blocks, use_order_field=True)
+        if not order_list:
+            return
+
+        params_count = int(module.get("params", min(len(block_order), len(order_list))))
+        block_order = block_order[:params_count]
+        order_list = order_list[:params_count]
+        if block_order == order_list:
+            return
+
+        values = [params.get(name, 0.0) for name in block_order]
+        remapped = dict(params)
+        for name, value in zip(order_list, values):
+            remapped[name] = value
+        module["parameters"] = remapped
 
     def _block_name_for_module(self, mod_id, config, block_index):
         blocks = self._module_blocks(mod_id, config)
@@ -1038,8 +2126,6 @@ class PatchBuilderEditor(QMainWindow):
     def _build_options_section(self, mod_id, config, module_index):
         mod = self.module_index.get(str(mod_id), {})
         options_def = mod.get("options", {})
-        if not options_def:
-            return QLabel("No options for this module")
 
         if "options" not in config:
             config["options"] = {}
@@ -1047,7 +2133,7 @@ class PatchBuilderEditor(QMainWindow):
             config["options_binary"] = {}
 
         options_group = QGroupBox("Module Options")
-        options_form = QFormLayout(options_group)
+        options_grid = QGridLayout(options_group)
 
         color_names = [
             "Blue",
@@ -1070,7 +2156,7 @@ class PatchBuilderEditor(QMainWindow):
         color_combo = QComboBox()
         color_combo.blockSignals(True)
         for idx, name in enumerate(color_names):
-            color_combo.addItem(name, idx)
+            color_combo.addItem(name.lower(), idx)
             if name == current_color:
                 color_combo.setCurrentIndex(idx)
         config["color"] = color_names[color_combo.currentIndex()]
@@ -1080,7 +2166,7 @@ class PatchBuilderEditor(QMainWindow):
                 mi, colors, idx
             )
         )
-        options_form.addRow(QLabel("color"), color_combo)
+        option_rows = [(QLabel("color"), color_combo)]
 
         for opt_name, values in options_def.items():
             if not isinstance(values, list) or not values:
@@ -1103,11 +2189,15 @@ class PatchBuilderEditor(QMainWindow):
                     mi, name, vals, idx
                 )
             )
-            options_form.addRow(QLabel(opt_name), combo)
+            option_rows.append((QLabel(opt_name), combo))
 
-        reset_btn = QPushButton("Reset Options to Defaults")
-        reset_btn.clicked.connect(lambda: self._reset_options(module_index))
-        options_form.addRow(reset_btn)
+        for idx, (label, widget) in enumerate(option_rows):
+            row = idx // 2
+            col = (idx % 2) * 2
+            options_grid.addWidget(label, row, col)
+            options_grid.addWidget(widget, row, col + 1)
+
+        # Reset button moved to top section next to override button.
         return options_group
 
     def _on_option_changed(self, module_index, option_name, values, index):
@@ -1138,9 +2228,17 @@ class PatchBuilderEditor(QMainWindow):
         if module_index < 0 or module_index >= len(self.selected_modules):
             return
         mod_id, config = self.selected_modules[module_index]
-        defaults = self._default_module_config(mod_id)
+        self.module_overrides.pop(str(mod_id), None)
+        self._save_module_overrides()
+        defaults = self._default_module_config_base(mod_id)
         config["options"] = defaults.get("options", {})
         config["options_binary"] = defaults.get("options_binary", {})
+        config["color"] = defaults.get("color", "Blue")
+        config["blocks"] = defaults.get("blocks", {})
+        config["parameters"] = defaults.get("parameters", {})
+        config["params"] = defaults.get("params", config.get("params", 0))
+        config["params_auto"] = defaults.get("params_auto", True)
+        config["size_of_saveable_data"] = defaults.get("size_of_saveable_data", 0)
         self._recalc_module_blocks_and_params(module_index)
         self._refresh_current_details()
         self._refresh_routing_view()
@@ -1156,6 +2254,25 @@ class PatchBuilderEditor(QMainWindow):
 
         params_group = QGroupBox("Parameters")
         params_form_layout = QVBoxLayout(params_group)
+
+        starred_params = config.get("starred_params")
+        if not isinstance(starred_params, set):
+            starred_params = set(starred_params) if starred_params else set()
+        starred_cc = config.get("starred_cc")
+        if not isinstance(starred_cc, dict):
+            starred_cc = dict(starred_cc) if starred_cc else {}
+        used_display = set(self._all_starred_cc_values())
+
+        order = self._param_order(
+            mod_id, self._module_blocks(mod_id, config), use_order_field=False
+        )
+        if order:
+            ordered_params = {name: parameters[name] for name in order if name in parameters}
+            # Preserve any extra params not in the order list.
+            for name, value in parameters.items():
+                if name not in ordered_params:
+                    ordered_params[name] = value
+            parameters = ordered_params
 
         for param_name, param_value in parameters.items():
             param_h_layout = QHBoxLayout()
@@ -1179,10 +2296,42 @@ class PatchBuilderEditor(QMainWindow):
             param_spinbox.setProperty("module_index", module_index)
             param_h_layout.addWidget(param_spinbox)
 
+            param_meta = self._param_display_meta(mod_id, param_name, options=config.get("options"))
+            display_label = QLabel(self._format_param_display(param_value, param_meta))
+            display_label.setMinimumWidth(70)
+            param_h_layout.addWidget(display_label)
+            star_checkbox = QCheckBox("")
+            star_checkbox.setChecked(param_name in starred_params)
+            star_checkbox.setProperty("param_name", param_name)
+            star_checkbox.setProperty("module_index", module_index)
+            star_checkbox.toggled.connect(self.on_param_star_toggled)
+            param_h_layout.addWidget(star_checkbox)
+            cc_label = QLabel("Starred CC")
+            param_h_layout.addWidget(cc_label)
+            cc_spinbox = QSpinBox()
+            cc_spinbox.setMinimum(-1)
+            cc_spinbox.setMaximum(127)
+            cc_spinbox.setSpecialValueText("")
+            if param_name in starred_cc:
+                cc_value = int(starred_cc.get(param_name, 0))
+            else:
+                cc_value = -1
+            cc_spinbox.setValue(cc_value)
+            cc_spinbox.setProperty("param_name", param_name)
+            cc_spinbox.setProperty("module_index", module_index)
+            cc_spinbox.valueChanged.connect(self.on_param_cc_changed)
+            cc_spinbox.setEnabled(param_name in starred_params)
+            param_h_layout.addWidget(cc_spinbox)
+
             control_key = f"{module_index}_{param_name}"
             self.param_controls[control_key] = {
                 "slider": param_slider,
                 "spinbox": param_spinbox,
+                "display_label": display_label,
+                "display_meta": param_meta,
+                "star_checkbox": star_checkbox,
+                "cc_label": cc_label,
+                "cc_spinbox": cc_spinbox,
                 "module_index": module_index,
                 "param_name": param_name,
             }
@@ -1216,6 +2365,7 @@ class PatchBuilderEditor(QMainWindow):
         mod_id, config = self.selected_modules[module_index]
         if "options" not in config:
             config["options"] = {}
+        self._normalize_options_order(mod_id, config)
         module_stub = {
             "mod_idx": int(mod_id),
             "version": config.get("version", 1),
@@ -1235,6 +2385,16 @@ class PatchBuilderEditor(QMainWindow):
                     name, float(self._param_default_value(mod_id, name))
                 )
         config["parameters"] = new_params
+        starred_params = config.get("starred_params")
+        if isinstance(starred_params, set):
+            config["starred_params"] = {
+                name for name in starred_params if name in new_params
+            }
+        starred_cc = config.get("starred_cc")
+        if isinstance(starred_cc, dict):
+            config["starred_cc"] = {
+                name: value for name, value in starred_cc.items() if name in new_params
+            }
         if config.get("params_auto"):
             config["params"] = len(new_params)
         if config.get("position"):
@@ -1242,12 +2402,313 @@ class PatchBuilderEditor(QMainWindow):
             if not self._is_span_free(config.get("page", 0), config["position"][0], span, module_index):
                 self._assign_module_position(config, mod_id=mod_id, module_index=module_index)
 
+    def _normalize_options_order(self, mod_id, config):
+        options_def = self.module_index.get(str(mod_id), {}).get("options", {})
+        if not options_def:
+            return
+        options = config.get("options", {})
+        ordered = {}
+        for name, values in options_def.items():
+            if name in options:
+                ordered[name] = options[name]
+            elif isinstance(values, list) and values:
+                ordered[name] = values[0]
+        if ordered:
+            config["options"] = ordered
+
     def toggle_routing_view(self):
         if self.routing_window and self.routing_window.isVisible():
             self.routing_window.close()
             return
         self._open_routing_window()
         self._refresh_routing_view()
+
+    def toggle_page_layout_view(self):
+        if self.page_layout_window and self.page_layout_window.isVisible():
+            self.page_layout_window.close()
+            return
+        self._open_page_layout_window()
+        self._refresh_page_layout_view()
+
+    def _open_page_layout_window(self):
+        if self.page_layout_window and self.page_layout_window.isVisible():
+            self.page_layout_window.raise_()
+            self.page_layout_window.activateWindow()
+            return
+
+        if self.patch_dict is None:
+            name = "New Patch"
+        else:
+            name = self.patch_dict.get("name", "New Patch")
+
+        self.page_layout_window = QMainWindow(self)
+        self.page_layout_window.setWindowTitle("Page Layout - {}".format(name))
+        self.page_layout_window.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.page_layout_window.destroyed.connect(self._on_page_layout_window_closed)
+
+        window_container = QWidget()
+        self.page_layout_window_layout = QVBoxLayout(window_container)
+        self.page_layout_window_placeholder = QLabel("No page data to display.")
+        self.page_layout_window_layout.addWidget(self.page_layout_window_placeholder)
+
+        controls = QWidget()
+        controls_layout = QHBoxLayout(controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.addWidget(QLabel("Pages:"))
+        self.page_layout_add_btn = QPushButton("+")
+        self.page_layout_remove_btn = QPushButton("-")
+        self.page_layout_add_btn.setFixedWidth(28)
+        self.page_layout_remove_btn.setFixedWidth(28)
+        self.page_layout_add_btn.clicked.connect(self._add_page_layout_page)
+        self.page_layout_remove_btn.clicked.connect(self._remove_page_layout_page)
+        controls_layout.addWidget(self.page_layout_add_btn)
+        controls_layout.addWidget(self.page_layout_remove_btn)
+        controls_layout.addStretch()
+        self.page_layout_controls = controls
+        self.page_layout_window_layout.addWidget(controls)
+
+        self.page_layout_window_scroll = QScrollArea()
+        self.page_layout_window_scroll.setWidgetResizable(True)
+        self.page_layout_window_container = QWidget()
+        self.page_layout_window_scroll.setWidget(self.page_layout_window_container)
+        self.page_layout_window_layout.addWidget(self.page_layout_window_scroll)
+
+        self.page_layout_window.setCentralWidget(window_container)
+        self.page_layout_window.resize(900, 700)
+        self.page_layout_window.show()
+
+    def _on_page_layout_window_closed(self, _obj=None):
+        self.page_layout_window = None
+        self.page_layout_window_layout = None
+        self.page_layout_window_placeholder = None
+        self.page_layout_window_scroll = None
+        self.page_layout_window_container = None
+        self.page_layout_controls = None
+        self.page_layout_add_btn = None
+        self.page_layout_remove_btn = None
+
+    def _refresh_page_layout_view(self):
+        if not (self.page_layout_window and self.page_layout_window.isVisible()):
+            return
+
+        patch = self._build_patch_dict()
+        if not patch["modules"]:
+            if self.page_layout_window_placeholder:
+                self.page_layout_window_placeholder.setText("No page data to display.")
+            if self.page_layout_remove_btn:
+                self.page_layout_remove_btn.setEnabled(False)
+            return
+
+        if self.page_layout_window_placeholder:
+            self.page_layout_window_placeholder.setText("")
+
+        if self.page_layout_window_scroll is None:
+            return
+
+        container = QWidget()
+        pages_layout = QVBoxLayout(container)
+        old_container = self.page_layout_window_container
+        self.page_layout_window_container = container
+        self.page_layout_window_scroll.setWidget(container)
+        if old_container is not None:
+            try:
+                old_container.setParent(None)
+                old_container.deleteLater()
+            except RuntimeError:
+                pass
+
+        page_count = max(1, patch.get("pages_count", 1))
+        page_names = patch.get("pages", ["Page 1"])
+        while len(page_names) < page_count:
+            page_names.append(f"Page {len(page_names) + 1}")
+
+        # Build a map of modules per page.
+        modules_by_page = {idx: [] for idx in range(page_count)}
+        for module in patch["modules"]:
+            page = int(module.get("page", 0))
+            if page not in modules_by_page:
+                modules_by_page[page] = []
+            modules_by_page[page].append(module)
+
+        if self.page_layout_remove_btn:
+            last_page_modules = modules_by_page.get(page_count - 1, [])
+            self.page_layout_remove_btn.setEnabled(len(last_page_modules) == 0 and page_count > 1)
+
+        max_pos = 39
+        cols = 8
+        rows = (max_pos + 1) // cols
+
+        for page_index in range(page_count):
+            page_group = QGroupBox()
+            page_group.setObjectName(f"page_group_{page_index}")
+            group_layout = QVBoxLayout(page_group)
+            header_layout = QHBoxLayout()
+            page_label = QLabel("Page Name:")
+            page_name_edit = QLineEdit(page_names[page_index] or f"Page {page_index + 1}")
+            page_name_edit.setObjectName(f"page_name_{page_index}")
+            page_name_edit.editingFinished.connect(
+                lambda idx=page_index, edit=page_name_edit: self._update_page_name(idx, edit.text())
+            )
+            header_layout.addWidget(page_label)
+            header_layout.addWidget(page_name_edit)
+            group_layout.addLayout(header_layout)
+
+            grid = QGridLayout()
+            grid.setSpacing(2)
+
+            # Initialize empty grid.
+            cells = {}
+            for pos in range(max_pos + 1):
+                row = pos // cols
+                col = pos % cols
+                cell = PageLayoutCell(
+                    page_index,
+                    pos,
+                    self._on_page_layout_drop,
+                )
+                cell.setText("")
+                cell.setMinimumSize(60, 24)
+                cell.setAlignment(Qt.AlignCenter)
+                cell.setStyleSheet("border: 1px solid #333333; background: #1b1b1b;")
+                grid.addWidget(cell, row, col)
+                cells[pos] = cell
+
+            for module in modules_by_page.get(page_index, []):
+                position = module.get("position", [0])
+                if isinstance(position, list) and len(position) > 1:
+                    module_positions = [int(pos) for pos in position]
+                else:
+                    start = position[0] if position else 0
+                    blocks = module.get("blocks", {})
+                    positions = []
+                    for meta in blocks.values():
+                        pos = meta.get("position")
+                        if isinstance(pos, list):
+                            positions.extend(pos)
+                        elif isinstance(pos, int):
+                            positions.append(pos)
+                    if positions:
+                        module_positions = [start + int(pos) for pos in positions]
+                    else:
+                        module_positions = [start]
+                color = module.get("color", "Blue")
+                text_color = "#ffffff" if color == "Blue" else "#000000"
+                label = module.get("name") or module.get("type") or "Module"
+                for offset, pos in enumerate(module_positions):
+                    if pos > max_pos:
+                        continue
+                    cell = cells.get(pos)
+                    if not cell:
+                        continue
+                    cell.module_number = module.get("number")
+                    cell.setStyleSheet(
+                        "border: 1px solid #333333; background: {}; color: {};".format(
+                            self._get_color_hex(color),
+                            text_color,
+                        )
+                    )
+                    if offset == 0:
+                        cell.setText(label)
+                    else:
+                        cell.setText("")
+
+            group_layout.addLayout(grid)
+            pages_layout.addWidget(page_group)
+
+    def _module_positions_for_index(self, module_index):
+        if module_index < 0 or module_index >= len(self.selected_modules):
+            return [], None
+        mod_id, config = self.selected_modules[module_index]
+        page = int(config.get("page", 0))
+        position = config.get("position", [0])
+        if isinstance(position, list) and len(position) > 1:
+            return [int(pos) for pos in position], page
+        if not isinstance(position, list) or not position:
+            start = 0
+        else:
+            start = int(position[0])
+        span = self._module_span_length(config, mod_id)
+        return list(range(start, start + span)), page
+
+    def _occupied_positions_exact(self, page, ignore_index=None):
+        occupied = set()
+        for idx in range(len(self.selected_modules)):
+            if ignore_index is not None and idx == ignore_index:
+                continue
+            positions, mod_page = self._module_positions_for_index(idx)
+            if mod_page != page:
+                continue
+            occupied.update(positions)
+        return occupied
+
+    def _move_module_to_position(self, module_index, target_page, target_pos, origin_pos=None):
+        positions, _old_page = self._module_positions_for_index(module_index)
+        if not positions:
+            return
+        if origin_pos is None:
+            origin_pos = min(positions)
+        delta = int(target_pos) - int(origin_pos)
+        new_positions = [p + delta for p in positions]
+
+        max_pos = 39
+        if any(p < 0 or p > max_pos for p in new_positions):
+            return
+
+        occupied = self._occupied_positions_exact(target_page, ignore_index=module_index)
+        if any(p in occupied for p in new_positions):
+            return
+
+        mod_id, config = self.selected_modules[module_index]
+        if isinstance(config.get("position"), list) and len(config.get("position")) > 1:
+            config["position"] = new_positions
+        else:
+            config["position"] = [min(new_positions)]
+        config["page"] = int(target_page)
+        self._refresh_current_details()
+        self._refresh_page_layout_view()
+        self._refresh_routing_view()
+
+    def _on_page_layout_drop(self, module_number, origin_pos, target_page, target_pos):
+        self._move_module_to_position(module_number, target_page, target_pos, origin_pos=origin_pos)
+
+    def _update_page_name(self, page_index, name):
+        if page_index < 0:
+            return
+        self._ensure_pending_pages()
+        while len(self._pending_pages) <= page_index:
+            self._pending_pages.append("")
+        self._pending_pages[int(page_index)] = name.strip()
+        self._pending_page_names[int(page_index)] = name.strip()
+
+    def _ensure_pending_pages(self):
+        if self._pending_pages is not None:
+            return
+        pages = ["Page 1"]
+        if self.patch_dict:
+            pages = self.patch_dict.get("pages", ["Page 1"])
+        max_page = 0
+        for _, config in self.selected_modules:
+            max_page = max(max_page, int(config.get("page", 0)))
+        while len(pages) < max_page + 1:
+            pages.append("")
+        self._pending_pages = list(pages)
+
+    def _add_page_layout_page(self):
+        self._ensure_pending_pages()
+        next_index = len(self._pending_pages) + 1
+        self._pending_pages.append(f"Page {next_index}")
+        self._refresh_page_layout_view()
+
+    def _remove_page_layout_page(self):
+        self._ensure_pending_pages()
+        if len(self._pending_pages) <= 1:
+            return
+        last_index = len(self._pending_pages) - 1
+        if any(int(cfg.get("page", 0)) == last_index for _, cfg in self.selected_modules):
+            return
+        self._pending_pages.pop()
+        self._pending_page_names.pop(last_index, None)
+        self._refresh_page_layout_view()
 
     def _open_routing_window(self):
         if self.routing_window and self.routing_window.isVisible():
@@ -1283,6 +2744,8 @@ class PatchBuilderEditor(QMainWindow):
 
     def _refresh_routing_view(self):
         if not (self.routing_window and self.routing_window.isVisible()):
+            if self.page_layout_window and self.page_layout_window.isVisible():
+                self._refresh_page_layout_view()
             return
 
         layout = self.routing_window_layout
@@ -1305,10 +2768,13 @@ class PatchBuilderEditor(QMainWindow):
         self.routing_graph.set_acyclic(False)
         setup_context_menu(self.routing_graph)
         self.routing_graph.register_nodes([BaseNode])
+        self.routing_graph.viewer().use_alt_navigation = False
         self.routing_window_graph_widget = self.routing_graph.widget
         layout.addWidget(self.routing_window_graph_widget)
+        self._bind_routing_graph_signals()
 
         nodes = {}
+        self._routing_port_meta = {}
         for module in patch["modules"]:
             node = self.routing_graph.create_node(
                 "nodeGraphQt.nodes.BaseNode",
@@ -1327,6 +2793,7 @@ class PatchBuilderEditor(QMainWindow):
                     outp.append(key)
                     out_pos.append(int(param["position"]))
             nodes[module["number"]] = node, inp, outp, in_pos, out_pos
+            self._register_routing_ports(module["number"], node, in_pos, out_pos)
 
         def node_pos_map(node):
             inpts = node[1]
@@ -1352,21 +2819,255 @@ class PatchBuilderEditor(QMainWindow):
             except (KeyError, IndexError):
                 pass
 
-        for conn in patch["connections"]:
-            mod, block = conn["source"].split(".")
-            nmod, nblock = conn["destination"].split(".")
-            src = data[int(mod)]
-            dest = data[int(nmod)]
-            try:
-                make_connections(mod, block, nmod, nblock, src, dest)
-            except KeyboardInterrupt:
-                break
+        self._routing_is_building = True
+        try:
+            for conn in patch["connections"]:
+                mod, block = conn["source"].split(".")
+                nmod, nblock = conn["destination"].split(".")
+                src = data[int(mod)]
+                dest = data[int(nmod)]
+                try:
+                    make_connections(mod, block, nmod, nblock, src, dest)
+                except KeyboardInterrupt:
+                    break
+        finally:
+            self._routing_is_building = False
 
         try:
             self.routing_graph.auto_layout_nodes()
         except (KeyError, RecursionError):
             self.routing_graph.reset_zoom()
         self.routing_graph.fit_to_selection()
+        if self.page_layout_window and self.page_layout_window.isVisible():
+            self._refresh_page_layout_view()
+
+    def _bind_routing_graph_signals(self):
+        if not self.routing_graph:
+            return
+        signals = getattr(self.routing_graph, "signals", None)
+        if signals:
+            if hasattr(signals, "connection_created"):
+                signals.connection_created.connect(self._on_routing_connection_created)
+            if hasattr(signals, "connection_deleted"):
+                signals.connection_deleted.connect(self._on_routing_connection_deleted)
+            if hasattr(signals, "connection_changed"):
+                signals.connection_changed.connect(self._on_routing_connection_changed)
+            if hasattr(signals, "port_connected"):
+                signals.port_connected.connect(self._on_routing_connection_created)
+            if hasattr(signals, "port_disconnected"):
+                signals.port_disconnected.connect(self._on_routing_connection_deleted)
+        if hasattr(self.routing_graph, "port_connected"):
+            self.routing_graph.port_connected.connect(self._on_routing_connection_created)
+        if hasattr(self.routing_graph, "port_disconnected"):
+            self.routing_graph.port_disconnected.connect(self._on_routing_connection_deleted)
+
+    def _register_routing_ports(self, module_index, node, in_pos, out_pos):
+        mod_id, cfg = self.selected_modules[int(module_index)]
+        for idx, pos in enumerate(in_pos):
+            try:
+                port = node.input(idx)
+            except Exception:
+                continue
+            block_type = self._block_type_for_module(mod_id, cfg, pos)
+            self._routing_port_meta[id(port)] = {
+                "module_index": int(module_index),
+                "block_index": int(pos),
+                "direction": "in",
+                "block_type": block_type,
+            }
+        for idx, pos in enumerate(out_pos):
+            try:
+                port = node.output(idx)
+            except Exception:
+                continue
+            block_type = self._block_type_for_module(mod_id, cfg, pos)
+            self._routing_port_meta[id(port)] = {
+                "module_index": int(module_index),
+                "block_index": int(pos),
+                "direction": "out",
+                "block_type": block_type,
+            }
+
+    def _on_routing_connection_changed(self, *args):
+        if not args:
+            return
+        connected = args[0]
+        if not isinstance(connected, bool):
+            return
+        if connected:
+            self._on_routing_connection_created(*args[1:])
+        else:
+            self._on_routing_connection_deleted(*args[1:])
+
+    def _on_routing_connection_created(self, *args):
+        if self._routing_is_building:
+            return
+        ports = self._extract_routing_ports(*args)
+        if not ports:
+            return
+        source_meta, dest_meta = self._routing_source_dest_meta(*ports)
+        if not source_meta or not dest_meta:
+            self._routing_disconnect_ports(*ports)
+            return
+        if not self._is_valid_connection(
+            source_meta["module_index"],
+            source_meta["block_index"],
+            dest_meta["module_index"],
+            dest_meta["block_index"],
+        ):
+            self._routing_disconnect_ports(*ports)
+            return
+        if self._connection_exists(
+            source_meta["module_index"],
+            source_meta["block_index"],
+            dest_meta["module_index"],
+            dest_meta["block_index"],
+        ):
+            return
+        self.connections.append(
+            {
+                "source": f"{int(source_meta['module_index'])}.{int(source_meta['block_index'])}",
+                "destination": f"{int(dest_meta['module_index'])}.{int(dest_meta['block_index'])}",
+                "strength": 100,
+                "source_raw": int(source_meta["module_index"]),
+                "source_block_raw": int(source_meta["block_index"]),
+                "dest_raw": int(dest_meta["module_index"]),
+                "dest_block_raw": int(dest_meta["block_index"]),
+                "strength_raw": 100 * 100,
+            }
+        )
+        self._refresh_current_details()
+
+    def _on_routing_connection_deleted(self, *args):
+        if self._routing_is_building:
+            return
+        ports = self._extract_routing_ports(*args)
+        if not ports:
+            return
+        source_meta, dest_meta = self._routing_source_dest_meta(*ports)
+        if not source_meta or not dest_meta:
+            return
+        self._remove_connection_by_meta(source_meta, dest_meta)
+        self._refresh_current_details()
+
+    def _extract_routing_ports(self, *args):
+        if not args:
+            return None
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            candidates = list(args[0])
+        else:
+            candidates = list(args)
+        candidates = [c for c in candidates if not isinstance(c, bool)]
+        ports = []
+        for cand in candidates:
+            port = self._normalize_routing_port(cand)
+            if port is not None and id(port) in self._routing_port_meta:
+                ports.append(port)
+        if len(ports) >= 2:
+            return ports[0], ports[1]
+        for cand in candidates:
+            ports = self._ports_from_edge(cand)
+            if ports:
+                return ports
+        return None
+
+    def _normalize_routing_port(self, port):
+        if port is None:
+            return None
+        if id(port) in self._routing_port_meta:
+            return port
+        for attr in ("model", "port", "_port"):
+            obj = getattr(port, attr, None)
+            if obj is not None and id(obj) in self._routing_port_meta:
+                return obj
+        return port
+
+    def _ports_from_edge(self, edge):
+        if edge is None:
+            return None
+        candidates = []
+        for attr in (
+            "input_port",
+            "output_port",
+            "in_port",
+            "out_port",
+            "src_port",
+            "dst_port",
+            "source_port",
+            "dest_port",
+        ):
+            val = getattr(edge, attr, None)
+            if callable(val):
+                try:
+                    val = val()
+                except Exception:
+                    val = None
+            if val is not None:
+                val = self._normalize_routing_port(val)
+                if id(val) in self._routing_port_meta:
+                    candidates.append(val)
+        if len(candidates) >= 2:
+            return candidates[0], candidates[1]
+        return None
+
+    def _routing_source_dest_meta(self, port_a, port_b):
+        meta_a = self._routing_port_meta.get(id(port_a))
+        meta_b = self._routing_port_meta.get(id(port_b))
+        if not meta_a or not meta_b:
+            return None, None
+        if meta_a["direction"] == "out" and meta_b["direction"] == "in":
+            return meta_a, meta_b
+        if meta_b["direction"] == "out" and meta_a["direction"] == "in":
+            return meta_b, meta_a
+        return None, None
+
+    def _routing_disconnect_ports(self, port_a, port_b):
+        graph = self.routing_graph
+        if not graph:
+            return
+        for method in ("disconnect_ports", "disconnect_port", "disconnect"):
+            if hasattr(graph, method):
+                try:
+                    getattr(graph, method)(port_a, port_b)
+                    return
+                except TypeError:
+                    try:
+                        getattr(graph, method)(port_a)
+                        return
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        for method in ("disconnect_from", "disconnect"):
+            if hasattr(port_a, method):
+                try:
+                    getattr(port_a, method)(port_b)
+                    return
+                except Exception:
+                    pass
+        for method in ("disconnect_from", "disconnect"):
+            if hasattr(port_b, method):
+                try:
+                    getattr(port_b, method)(port_a)
+                    return
+                except Exception:
+                    pass
+
+    def _connection_exists(self, source_mod, source_block, dest_mod, dest_block):
+        source_key = f"{int(source_mod)}.{int(source_block)}"
+        dest_key = f"{int(dest_mod)}.{int(dest_block)}"
+        for conn in self.connections:
+            if conn.get("source") == source_key and conn.get("destination") == dest_key:
+                return True
+        return False
+
+    def _remove_connection_by_meta(self, source_meta, dest_meta):
+        source_key = f"{int(source_meta['module_index'])}.{int(source_meta['block_index'])}"
+        dest_key = f"{int(dest_meta['module_index'])}.{int(dest_meta['block_index'])}"
+        for idx, conn in enumerate(list(self.connections)):
+            if conn.get("source") == source_key and conn.get("destination") == dest_key:
+                self.connections.pop(idx)
+                break
 
     def _find_backend_patch_by_title(self, title):
         if not title:

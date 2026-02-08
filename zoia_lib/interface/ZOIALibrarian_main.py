@@ -131,7 +131,7 @@ class ZOIALibrarianMain(QMainWindow):
         self.tab_3 = -1
         # self.add_rating = None
         # self.add_download_date = None
-        self._version = "2.0"
+        self._version = "2.1"
 
         # Threads
         self.worker_mass = ImportMassWorker(self)
@@ -314,6 +314,7 @@ class ZOIALibrarianMain(QMainWindow):
         self.ui.refresh_pch_btn.clicked.connect(self.ps.reload_ps_thread)
         self.ui.update_patch_notes.clicked.connect(self.local.update_patch_notes)
         self.ui.upload_patch.clicked.connect(self.local.upload_patch)
+        self.ui.split_version.clicked.connect(self.local.split_version_history)
         self.ui.actionImport_A_Patch.triggered.connect(self.import_patch)
         self.ui.actionReset_Sizes.triggered.connect(self.reset_ui)
         self.ui.actionCheck_for_Updates.triggered.connect(self.check_for_updates)
@@ -322,6 +323,9 @@ class ZOIALibrarianMain(QMainWindow):
         self.ui.actionTips_Tricks.triggered.connect(self.util.tips)
         self.ui.actionModule_Index.triggered.connect(self.util.mod_idx)
         self.ui.actionFirmware_Files.triggered.connect(self.util.firmware)
+        self.ui.table_local.cellDoubleClicked.connect(
+            self.local.handle_title_double_click
+        )
         self.ui.table_local.installEventFilter(self)
         self.ui.table_sd_left.installEventFilter(self)
         self.ui.table_sd_right.installEventFilter(self)
@@ -604,6 +608,9 @@ class ZOIALibrarianMain(QMainWindow):
             # Connect the button and insert into the table.
             btn_title.toggled.connect(self.display_patch_info)
             btn_title.setFont(self.ui.table_PS.font())
+            if table_index == 1:
+                btn_title.setProperty("row", i)
+                btn_title.installEventFilter(self.local)
             curr_table.setCellWidget(i, 0, btn_title)
 
             # Text for the headers "Tags" and "Categories"
@@ -1063,6 +1070,7 @@ class ZOIALibrarianMain(QMainWindow):
             self.ui.searchbar_local.setText("")
             self.ui.update_patch_notes.setEnabled(False)
             self.ui.upload_patch.setEnabled(False)
+            self.ui.split_version.setEnabled(True)
             self.ui.back_btn_local.setEnabled(True)
             self.ui.new_patch_btn.setEnabled(False)
             self.ui.back_btn.setEnabled(False)
@@ -1076,6 +1084,7 @@ class ZOIALibrarianMain(QMainWindow):
             self.local.set_prev_search(self.ui.searchbar_bank.text())
             self.ui.text_browser_bank.setText("")
             self.ui.searchbar_bank.setText("")
+            self.ui.split_version.setEnabled(False)
             self.ui.back_btn_bank.setEnabled(True)
             # Prepare the table.
             self.local.get_version_patches(False, self.sender().objectName())

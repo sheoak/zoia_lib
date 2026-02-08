@@ -37,12 +37,13 @@ https://github.com/meanmedianmoge/zoia_lib/releases/latest.
     ```
 
 ## Documentation
-- Overview video and tutorial: https://www.youtube.com/watch?v=JLOUrWtG1Pk
-- Supplemental 1.1 video: https://www.youtube.com/watch?v=nP9oRLtXMUE
-- Supplemental 1.2 video: https://www.youtube.com/watch?v=zR8XSI_Unlk
-- Supplemental 1.3 video: https://www.youtube.com/watch?v=Y4ILhtxdIvs
-- Supplemental 1.4 video: https://www.youtube.com/watch?v=ymLvRhC1GmI
-- Supplemental 2.0 video: https://www.youtube.com/watch?v=j6mz4DIdEpU
+- Version 1.0 video: https://www.youtube.com/watch?v=JLOUrWtG1Pk
+- Version 1.1 video: https://www.youtube.com/watch?v=nP9oRLtXMUE
+- Version 1.2 video: https://www.youtube.com/watch?v=zR8XSI_Unlk
+- Version 1.3 video: https://www.youtube.com/watch?v=Y4ILhtxdIvs
+- Version 1.4 video: https://www.youtube.com/watch?v=ymLvRhC1GmI
+- Version 2.0 video: https://www.youtube.com/watch?v=j6mz4DIdEpU
+- Version 2.1 video: 
 - You'll find the following in `documentation`: <br>
     - Current version of the user manual
     - Overall changelog - lists new features, bug fixes, and known issues for each release

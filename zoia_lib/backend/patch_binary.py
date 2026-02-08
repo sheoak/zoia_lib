@@ -787,7 +787,7 @@ class PatchBinary(Patch):
                 blocks.append(d[4])
             blocks.append(d[5])
             blocks.append(d[6])
-            if opt[0][1] != "1in-1out":
+            if opt[0][1] != "1in->1out":
                 blocks.append(d[7])
         elif idx == 42:
             blocks = [d[0]]
