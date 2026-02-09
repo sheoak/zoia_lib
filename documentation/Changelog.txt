@@ -20,6 +20,7 @@ New Features
 - Local patch names can now be edited similarly to tags and categories (double-click on name text to modify).
 - Version Histories can be broken up into indvidual patches.
   - This can apply to any set of patches in the VH, however if all are chosen, the VH will be deleted.
+- More deployment optimization (version number).
 
 Fixes
 - Fixed module parameter assignment when modifying block values.

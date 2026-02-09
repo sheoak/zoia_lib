@@ -145,5 +145,5 @@ dmypy.json
 
 # Specific paths
 # documentation/resources
-zoia_lib/beta
 .github/copilot-instructions.md
+.github/workflows/zoia_lib.code-workspace

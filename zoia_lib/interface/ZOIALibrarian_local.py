@@ -895,6 +895,18 @@ class ZOIALibrarianLocal(QMainWindow):
         file = os.path.join(self.path, self.local_selected, self.local_selected)
         with open(file + ".json", "r") as f:
             data = json.loads(f.read())
+        author = data['author']['name']
+
+        if usr != author:
+            self.ui.statusbar.showMessage(
+                "Invalid User.", timeout=5000
+            )
+            self.msg.setWindowTitle("Upload Failed")
+            self.msg.setIcon(QMessageBox.Warning)
+            self.msg.setText("You can only modify patches you created.")
+            self.msg.setStandardButtons(QMessageBox.Ok)
+            self.msg.exec_()
+            return
 
         # Now start the upload process
         # First we need artwork
