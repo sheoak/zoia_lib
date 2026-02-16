@@ -872,7 +872,7 @@ class PatchBinary(Patch):
             blocks.append(d[4])
             blocks.append(d[5])
             blocks.append(d[6])
-            if opt[0][1] != "1in>1out":
+            if opt[0][1] != "1in->1out":
                 blocks.append(d[7])
         elif idx == 68:
             if opt[0][1] == "mono":
@@ -894,7 +894,7 @@ class PatchBinary(Patch):
             blocks.append(d[7])
             blocks.append(d[8])
             blocks.append(d[9])
-            if opt[0][1] != "1in>1out":
+            if opt[0][1] != "1in->1out":
                 blocks.append(d[10])
         elif idx == 70:
             blocks = [d[0]]
@@ -910,7 +910,7 @@ class PatchBinary(Patch):
             blocks.append(d[6])
             blocks.append(d[7])
             blocks.append(d[8])
-            if opt[0][1] != "1in>1out":
+            if opt[0][1] != "1in->1out":
                 blocks.append(d[9])
         elif idx == 71:
             blocks = [d[0]]
@@ -924,7 +924,7 @@ class PatchBinary(Patch):
                 blocks.append(d[4])
             blocks.append(d[5])
             blocks.append(d[6])
-            if opt[0][1] != "1in>1out":
+            if opt[0][1] != "1in->1out":
                 blocks.append(d[7])
         elif idx == 72:
             blocks = [d[0]]
@@ -935,7 +935,7 @@ class PatchBinary(Patch):
             blocks.append(d[4])
             blocks.append(d[5])
             blocks.append(d[6])
-            if opt[0][1] != "1in>1out":
+            if opt[0][1] != "1in->1out":
                 blocks.append(d[7])
         elif idx == 73:
             blocks = [d[0]]

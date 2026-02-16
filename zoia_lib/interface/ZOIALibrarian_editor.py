@@ -562,6 +562,8 @@ class PatchBuilderEditor(QMainWindow):
             if config.get("position"):
                 preferred_start = config["position"][0] + self._module_span_length(config, mod_id)
 
+        self._resolve_inserted_supermodule_cc_conflicts(insert_row, len(valid_modules))
+
         if keep_connections:
             for conn in supermodule.get("connections", []):
                 new_conn = copy.deepcopy(conn)
@@ -585,6 +587,68 @@ class PatchBuilderEditor(QMainWindow):
                     new_conn.pop("dest_raw", None)
                     new_conn.pop("dest_block_raw", None)
                 self.connections.append(new_conn)
+
+    def _resolve_inserted_supermodule_cc_conflicts(self, start_index, count):
+        if count <= 0 or start_index < 0:
+            return
+        end_index = min(start_index + count, len(self.selected_modules))
+        if start_index >= end_index:
+            return
+
+        used = set()
+        for idx, (_mod_id, config) in enumerate(self.selected_modules):
+            if start_index <= idx < end_index:
+                continue
+            cc_map = config.get("starred_cc")
+            if not isinstance(cc_map, dict):
+                continue
+            for value in cc_map.values():
+                try:
+                    cc = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= cc <= 127:
+                    used.add(cc)
+
+        def _next_free():
+            for cc in range(128):
+                if cc not in used:
+                    return cc
+            return None
+
+        for idx in range(start_index, end_index):
+            _mod_id, config = self.selected_modules[idx]
+            starred_params = config.get("starred_params")
+            if not starred_params:
+                continue
+            if not isinstance(starred_params, (set, list, tuple)):
+                continue
+            starred = sorted(str(name) for name in starred_params)
+            cc_map = config.get("starred_cc")
+            if not isinstance(cc_map, dict):
+                cc_map = dict(cc_map) if cc_map else {}
+
+            reassigned = {}
+            for param_name in starred:
+                desired = cc_map.get(param_name)
+                cc_value = None
+                try:
+                    if desired is not None:
+                        parsed = int(desired)
+                        if 0 <= parsed <= 127:
+                            cc_value = parsed
+                except (TypeError, ValueError):
+                    cc_value = None
+
+                if cc_value is None or cc_value in used:
+                    cc_value = _next_free()
+                if cc_value is None:
+                    continue
+
+                reassigned[param_name] = cc_value
+                used.add(cc_value)
+
+            config["starred_cc"] = reassigned
 
     def _add_supermodule_from_tree(self, item):
         super_index = item.data(0, Qt.UserRole)
@@ -645,9 +709,21 @@ class PatchBuilderEditor(QMainWindow):
             )
             return
         try:
+            def _json_safe(value):
+                if isinstance(value, dict):
+                    return {k: _json_safe(v) for k, v in value.items()}
+                if isinstance(value, list):
+                    return [_json_safe(v) for v in value]
+                if isinstance(value, tuple):
+                    return [_json_safe(v) for v in value]
+                if isinstance(value, set):
+                    return sorted(_json_safe(v) for v in value)
+                return value
+
+            payload = {"supermodules": _json_safe(self.supermodules)}
             with open(path, "w") as f:
-                json.dump({"supermodules": self.supermodules}, f, indent=2)
-        except OSError:
+                json.dump(payload, f, indent=2)
+        except (OSError, TypeError, ValueError):
             QMessageBox.warning(self, "Supermodule Save Failed", "Unable to save supermodules.")
 
     def _refresh_supermodule_list(self):
@@ -1777,18 +1853,64 @@ class PatchBuilderEditor(QMainWindow):
         mod = self.module_index.get(mod_id, {})
         return config.get("name") if config and config.get("name") else mod.get("name", "")
 
-    def _module_span_length(self, config, mod_id):
-        blocks = config.get("blocks", {})
+    def _module_start_position(self, config):
+        position = config.get("position", [0]) if config else [0]
+        if isinstance(position, list) and position:
+            try:
+                return int(min(position))
+            except (TypeError, ValueError):
+                return 0
+        if isinstance(position, int):
+            return int(position)
+        return 0
+
+    def _module_relative_positions(self, config, mod_id):
+        blocks = config.get("blocks", {}) if config else {}
         positions = []
         for meta in blocks.values():
             position = meta.get("position")
             if isinstance(position, list):
-                positions.extend(position)
+                for pos in position:
+                    try:
+                        positions.append(int(pos))
+                    except (TypeError, ValueError):
+                        continue
             elif isinstance(position, int):
-                positions.append(position)
+                positions.append(int(position))
+
         if positions:
-            return max(positions) + 1
-        return self.module_index.get(str(mod_id), {}).get("min_blocks", 1)
+            unique = sorted(set(positions))
+            return list(range(len(unique)))
+
+        position = config.get("position", [0]) if config else [0]
+        if isinstance(position, list) and len(position) > 1:
+            cleaned = []
+            for pos in position:
+                try:
+                    cleaned.append(int(pos))
+                except (TypeError, ValueError):
+                    continue
+            if cleaned:
+                unique = sorted(set(cleaned))
+                return list(range(len(unique)))
+
+        span = self.module_index.get(str(mod_id), {}).get("min_blocks", 1)
+        return list(range(max(1, int(span))))
+
+    def _module_absolute_positions(self, mod_id, config):
+        start = self._module_start_position(config)
+        rel_positions = self._module_relative_positions(config, mod_id)
+        return [start + rel for rel in rel_positions]
+
+    def _is_positions_free(self, page, positions, ignore_index=None):
+        occupied = self._occupied_positions(ignore_index=ignore_index).get(page, set())
+        return all(pos not in occupied for pos in positions)
+
+    def _module_span_length(self, config, mod_id):
+        rel_positions = self._module_relative_positions(config, mod_id)
+        if rel_positions:
+            return max(rel_positions) + 1
+        return 1
 
     def _occupied_positions(self, ignore_index=None):
         occupied = {}
@@ -1797,24 +1919,22 @@ class PatchBuilderEditor(QMainWindow):
                 continue
             if not cfg.get("position"):
                 continue
-            start = cfg["position"][0]
             page = cfg.get("page", 0)
-            span = self._module_span_length(cfg, mod_id)
+            module_positions = self._module_absolute_positions(mod_id, cfg)
             occupied.setdefault(page, set())
-            for pos in range(start, start + span):
+            for pos in module_positions:
                 occupied[page].add(pos)
         return occupied
 
     def _is_span_free(self, page, start, span, ignore_index=None):
-        occupied = self._occupied_positions(ignore_index=ignore_index).get(page, set())
-        for pos in range(start, start + span):
-            if pos in occupied:
-                return False
-        return True
+        return self._is_positions_free(
+            page, list(range(int(start), int(start) + int(span))), ignore_index=ignore_index
+        )
 
     def _assign_module_position(self, config, mod_id=None, preferred_start=0, module_index=None, preferred_page=None):
         if mod_id is None:
             mod_id = config.get("mod_idx", 0)
+        rel_positions = self._module_relative_positions(config, mod_id)
         span = self._module_span_length(config, mod_id)
         start = max(0, int(preferred_start))
         max_pos = 39
@@ -1828,14 +1948,16 @@ class PatchBuilderEditor(QMainWindow):
             return
 
         for current_page in range(page, max_page + 1):
-            if start + span - 1 <= max_pos and self._is_span_free(
-                current_page, start, span, module_index
-            ):
-                config["position"] = [start]
-                config["page"] = current_page
-                return
-            for candidate in range(0, max_pos - span + 2):
-                if self._is_span_free(current_page, candidate, span, module_index):
+            candidates = [start] + list(range(0, max_pos - span + 2))
+            checked = set()
+            for candidate in candidates:
+                if candidate in checked:
+                    continue
+                checked.add(candidate)
+                positions = [candidate + rel for rel in rel_positions]
+                if any(pos < 0 or pos > max_pos for pos in positions):
+                    continue
+                if self._is_positions_free(current_page, positions, module_index):
                     config["position"] = [candidate]
                     config["page"] = current_page
                     return
@@ -2398,8 +2520,8 @@ class PatchBuilderEditor(QMainWindow):
         if config.get("params_auto"):
             config["params"] = len(new_params)
         if config.get("position"):
-            span = self._module_span_length(config, mod_id)
-            if not self._is_span_free(config.get("page", 0), config["position"][0], span, module_index):
+            positions = self._module_absolute_positions(mod_id, config)
+            if not self._is_positions_free(config.get("page", 0), positions, module_index):
                 self._assign_module_position(config, mod_id=mod_id, module_index=module_index)
 
     def _normalize_options_order(self, mod_id, config):
@@ -2574,23 +2696,10 @@ class PatchBuilderEditor(QMainWindow):
                 cells[pos] = cell
 
             for module in modules_by_page.get(page_index, []):
-                position = module.get("position", [0])
-                if isinstance(position, list) and len(position) > 1:
-                    module_positions = [int(pos) for pos in position]
-                else:
-                    start = position[0] if position else 0
-                    blocks = module.get("blocks", {})
-                    positions = []
-                    for meta in blocks.values():
-                        pos = meta.get("position")
-                        if isinstance(pos, list):
-                            positions.extend(pos)
-                        elif isinstance(pos, int):
-                            positions.append(pos)
-                    if positions:
-                        module_positions = [start + int(pos) for pos in positions]
-                    else:
-                        module_positions = [start]
+                module_positions = self._module_absolute_positions(
+                    module.get("mod_idx", 0),
+                    module,
+                )
                 color = module.get("color", "Blue")
                 text_color = "#ffffff" if color == "Blue" else "#000000"
                 label = module.get("name") or module.get("type") or "Module"
@@ -2620,15 +2729,7 @@ class PatchBuilderEditor(QMainWindow):
             return [], None
         mod_id, config = self.selected_modules[module_index]
         page = int(config.get("page", 0))
-        position = config.get("position", [0])
-        if isinstance(position, list) and len(position) > 1:
-            return [int(pos) for pos in position], page
-        if not isinstance(position, list) or not position:
-            start = 0
-        else:
-            start = int(position[0])
-        span = self._module_span_length(config, mod_id)
-        return list(range(start, start + span)), page
+        return self._module_absolute_positions(mod_id, config), page
 
     def _occupied_positions_exact(self, page, ignore_index=None):
         occupied = set()
