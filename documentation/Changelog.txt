@@ -25,6 +25,7 @@ New Features
 Fixes
 - Fixed module parameter assignment when modifying block values.
 - Fixed an issue when building certain module blocks.
+- Made all UI buttons consistent.
 
 Plans
 - More editing features and quality-of-life updates.

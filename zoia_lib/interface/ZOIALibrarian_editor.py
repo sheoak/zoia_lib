@@ -37,6 +37,11 @@ from zoia_lib.backend.patch_binary import PatchBinary
 from zoia_lib.backend.patch_encode import PatchEncoder
 from zoia_lib.backend.utilities import exit_after, meipass
 
+class EditorButton(QPushButton):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setObjectName("editor_btn")
+
 class PageLayoutCell(QLabel):
     def __init__(self, page_index, position, on_drop, parent=None):
         super().__init__(parent)
@@ -160,11 +165,11 @@ class PatchBuilderEditor(QMainWindow):
         self.supermodule_category = QTreeWidgetItem(["Supermodules"])
         self.supermodule_category.setData(0, 1, "supermodule_category")
         self.module_list.addTopLevelItem(self.supermodule_category)
-        self.add_module_btn = QPushButton("Add Module to Patch →")
+        self.add_module_btn = EditorButton("Add Module to Patch →")
         module_list_layout.addWidget(self.add_module_btn)
 
         self.supermodules = []
-        self.supermodule_delete_btn = QPushButton("Delete Selected Supermodule")
+        self.supermodule_delete_btn = EditorButton("Delete Selected Supermodule")
         self.supermodule_delete_btn.setEnabled(False)
         module_list_layout.addWidget(self.supermodule_delete_btn)
         main_layout.addLayout(module_list_layout, 1)
@@ -178,9 +183,9 @@ class PatchBuilderEditor(QMainWindow):
         self.selected_list.setContextMenuPolicy(Qt.CustomContextMenu)
         selected_layout.addWidget(selected_label)
         selected_layout.addWidget(self.selected_list)
-        self.remove_module_btn = QPushButton("Remove Selected Module(s)")
+        self.remove_module_btn = EditorButton("Remove Selected Module(s)")
         selected_layout.addWidget(self.remove_module_btn)
-        self.save_supermodule_btn = QPushButton("Save Selected as Supermodule")
+        self.save_supermodule_btn = EditorButton("Save Selected as Supermodule")
         selected_layout.addWidget(self.save_supermodule_btn)
         main_layout.addLayout(selected_layout, 1)
 
@@ -216,9 +221,9 @@ class PatchBuilderEditor(QMainWindow):
 
         # Bottom button layout
         bottom_layout = QHBoxLayout()
-        self.toggle_routing_btn = QPushButton("Show Expanded Patch")
-        self.toggle_page_layout_btn = QPushButton("Show Page Layout")
-        self.export_btn = QPushButton("Export Patch")
+        self.toggle_routing_btn = EditorButton("Show Expanded Patch")
+        self.toggle_page_layout_btn = EditorButton("Show Page Layout")
+        self.export_btn = EditorButton("Export Patch")
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.toggle_routing_btn)
         bottom_layout.addWidget(self.toggle_page_layout_btn)
@@ -779,9 +784,9 @@ class PatchBuilderEditor(QMainWindow):
         self.details_layout.addWidget(cpu_label)
 
         override_row = QHBoxLayout()
-        save_override_btn = QPushButton("Save as Default Override")
+        save_override_btn = EditorButton("Save as Default Override")
         save_override_btn.clicked.connect(lambda: self._save_module_override(mod_id, config))
-        reset_btn = QPushButton("Reset to Module Defaults")
+        reset_btn = EditorButton("Reset to Module Defaults")
         reset_btn.clicked.connect(lambda: self._reset_options(module_index))
         override_row.addWidget(save_override_btn)
         override_row.addWidget(reset_btn)
@@ -1212,9 +1217,9 @@ class PatchBuilderEditor(QMainWindow):
             choice.setModal(True)
             layout = QVBoxLayout(choice)
             layout.addWidget(QLabel("How should this edited patch be saved?"))
-            overwrite_btn = QPushButton("Overwrite Existing")
-            new_version_btn = QPushButton("Create New Version")
-            cancel_btn = QPushButton("Cancel")
+            overwrite_btn = EditorButton("Overwrite Existing")
+            new_version_btn = EditorButton("Create New Version")
+            cancel_btn = EditorButton("Cancel")
             layout.addWidget(overwrite_btn)
             layout.addWidget(new_version_btn)
             layout.addWidget(cancel_btn)
@@ -1661,7 +1666,7 @@ class PatchBuilderEditor(QMainWindow):
         strength.setRange(0, 100)
         strength.setValue(100)
 
-        add_btn = QPushButton("Add Connection")
+        add_btn = EditorButton("Add Connection")
         add_btn.clicked.connect(
             lambda: self._add_connection(
                 source_combo.currentData(),
@@ -1730,12 +1735,12 @@ class PatchBuilderEditor(QMainWindow):
                     row_height = 22
                 conn_list.setMinimumHeight(row_height * 5 + conn_list.frameWidth() * 2)
 
-            adjust_btn = QPushButton("Adjust Connection Strength")
+            adjust_btn = EditorButton("Adjust Connection Strength")
             adjust_btn.setEnabled(False)
             adjust_btn.clicked.connect(
                 lambda: self._adjust_connection_strength(conn_list, module_index)
             )
-            remove_btn = QPushButton("Remove Selected Connection")
+            remove_btn = EditorButton("Remove Selected Connection")
             remove_btn.setEnabled(False)
             remove_btn.clicked.connect(
                 lambda: self._remove_selected_connection(conn_list, module_index)
@@ -1826,8 +1831,8 @@ class PatchBuilderEditor(QMainWindow):
         spin.valueChanged.connect(slider.setValue)
 
         btn_row = QHBoxLayout()
-        ok_btn = QPushButton("Apply")
-        cancel_btn = QPushButton("Cancel")
+        ok_btn = EditorButton("Apply")
+        cancel_btn = EditorButton("Cancel")
         ok_btn.clicked.connect(dialog.accept)
         cancel_btn.clicked.connect(dialog.reject)
         btn_row.addStretch()
@@ -2577,8 +2582,8 @@ class PatchBuilderEditor(QMainWindow):
         controls_layout = QHBoxLayout(controls)
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.addWidget(QLabel("Pages:"))
-        self.page_layout_add_btn = QPushButton("+")
-        self.page_layout_remove_btn = QPushButton("-")
+        self.page_layout_add_btn = EditorButton("+")
+        self.page_layout_remove_btn = EditorButton("-")
         self.page_layout_add_btn.setFixedWidth(28)
         self.page_layout_remove_btn.setFixedWidth(28)
         self.page_layout_add_btn.clicked.connect(self._add_page_layout_page)

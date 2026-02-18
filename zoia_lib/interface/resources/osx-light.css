@@ -22,6 +22,10 @@ QPushButton {
     color: #000;
 }
 
+QPushButton#editor_btn {
+    padding: 2px 8px 2px 8px;
+}
+
 QPushButton::enabled {
     background-color: #fff;
 }

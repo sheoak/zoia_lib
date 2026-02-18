@@ -64,7 +64,11 @@ QPushButton#btn_prev_page,
 QPushButton#btn_next_page,
 QPushButton#back_btn,
 QPushButton#btn_show_routing,
-QPushButton#set_export_dir_btn {
+QPushButton#set_export_dir_btn,
+QPushButton#new_patch_btn,
+QPushButton#edit_patch,
+QPushButton#upload_patch,
+QPushButton#split_version {
     border-radius: 5px;
     padding: 2px 2px 2px 2px;
     border: 1px solid black;
@@ -73,14 +77,13 @@ QPushButton#set_export_dir_btn {
 QPushButton#back_btn_local,
 QPushButton#btn_save_bank,
 QPushButton#back_btn_bank {
-    border-top-left-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 25px 2px 25px;
     border: 1px solid black;
 }
 
 QPushButton#update_patch_notes {
-    border-top-right-radius: 10px 5px;
-    border-top-left-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 2px 2px 2px;
     border: 1px solid black;
 }
@@ -88,7 +91,7 @@ QPushButton#update_patch_notes {
 QPushButton#refresh_pch_btn,
 QPushButton#check_for_updates_btn,
 QPushButton#btn_clear_bank {
-    border-top-right-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 5px 2px 5px;
     border: 1px solid black;
 }
@@ -118,6 +121,13 @@ QPushButton {
     y2: 0,
     stop: 0 rgba(0, 0, 0, 19),
     stop: 1 rgba(255, 255, 255, 255));
+    border-radius: 5px;
+}
+
+QPushButton#editor_btn {
+    border-radius: 5px;
+    padding: 2px 8px 2px 8px;
+    border: 1px solid black;
 }
 
 QPushButton#refresh_pch_btn:hover, QPushButton#back_btn_local:hover,
@@ -127,7 +137,9 @@ QPushButton#btn_save_bank:hover, QPushButton#btn_load_bank:hover,
 QPushButton#btn_export_bank:hover, QPushButton#check_for_updates_btn:hover,
 QPushButton#delete_folder_sd_btn:hover, QPushButton#btn_dwn_all:hover,
 QPushButton#btn_prev_page:hover, QPushButton#btn_next_page:hover,
-QPushButton#set_export_dir_btn:hover, QPushButton#btn_clear_bank:hover {
+QPushButton#set_export_dir_btn:hover, QPushButton#btn_clear_bank:hover,
+QPushButton#new_patch_btn:hover, QPushButton#edit_patch:hover,
+QPushButton#upload_patch:hover, QPushButton#split_version:hover {
     background-color: #d9ebf9;
 }
 
@@ -142,7 +154,9 @@ QPushButton#btn_save_bank:disabled, QPushButton#btn_load_bank:disabled,
 QPushButton#btn_export_bank:disabled, QPushButton#check_for_updates_btn:disabled,
 QPushButton#delete_folder_sd_btn:disabled, QPushButton#btn_prev_page:disabled,
 QPushButton#btn_next_page:disabled, QPushButton#set_export_dir_btn:disabled,
-QPushButton#btn_clear_bank:disabled {
+QPushButton#btn_clear_bank:disabled, QPushButton#new_patch_btn:disabled,
+QPushButton#edit_patch:disabled, QPushButton#upload_patch:disabled,
+QPushButton#split_version:disabled {
     background-color: #c1c1c1;
     border: 0;
     color: #545b66;
@@ -205,7 +219,9 @@ QPushButton#btn_load_bank, QPushButton#btn_export_bank,
 QPushButton#check_for_updates_btn, QPushButton#delete_folder_sd_btn,
 QPushButton#btn_dwn_all, QPushButton#btn_next_page,
 QPushButton#btn_prev_page, QPushButton#set_export_dir_btn,
-QPushButton#btn_export_bank, QPushButton#btn_clear_bank {
+QPushButton#btn_export_bank, QPushButton#btn_clear_bank,
+QPushButton#new_patch_btn, QPushButton#edit_patch,
+QPushButton#upload_patch, QPushButton#split_version {
     background-color: #eaeaea;
     color: #000;
 }

@@ -55,6 +55,13 @@ QPushButton {
     background-color: #5e616e;
     border: 1px solid #696969;
     color: #FFF;
+    border-radius: 5px;
+}
+
+QPushButton#editor_btn {
+    border-radius: 5px;
+    padding: 2px 8px 2px 8px;
+    border: 1px solid black;
 }
 
 QPushButton#btn_load_bank,
@@ -71,7 +78,11 @@ QPushButton#btn_prev_page,
 QPushButton#btn_next_page,
 QPushButton#back_btn,
 QPushButton#btn_show_routing,
-QPushButton#set_export_dir_btn {
+QPushButton#set_export_dir_btn,
+QPushButton#new_patch_btn,
+QPushButton#edit_patch,
+QPushButton#upload_patch,
+QPushButton#split_version {
     border-radius: 5px;
     padding: 2px 2px 2px 2px;
     border: 1px solid black;
@@ -80,14 +91,13 @@ QPushButton#set_export_dir_btn {
 QPushButton#back_btn_local,
 QPushButton#btn_save_bank,
 QPushButton#back_btn_bank {
-    border-top-left-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 25px 2px 25px;
     border: 1px solid black;
 }
 
 QPushButton#update_patch_notes {
-    border-top-right-radius: 10px 5px;
-    border-top-left-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 2px 2px 2px;
     border: 1px solid black;
 }
@@ -95,13 +105,13 @@ QPushButton#update_patch_notes {
 QPushButton#refresh_pch_btn,
 QPushButton#check_for_updates_btn,
 QPushButton#btn_clear_bank {
-    border-top-right-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 5px 2px 5px;
     border: 1px solid black;
 }
 
 QPushButton#refresh_pch_btn{
-    border-top-right-radius: 10px 5px;
+    border-radius: 5px;
     padding: 2px 5px 2px 5px;
     border: 1px solid black;
 }
