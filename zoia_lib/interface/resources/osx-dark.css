@@ -24,11 +24,11 @@ QMenuBar::item:pressed {
     color: #FFF;
 }
 
-QPushButton {
+/* QPushButton {
     border-radius: 5px;
-}
+} */
 
-QPushButton#editor_btn {
+/* QPushButton#editor_btn {
     background-color: #5e616e;
     border: 1px solid black;
     border-radius: 5px;
@@ -51,7 +51,7 @@ QPushButton#editor_btn:disabled {
     background-color: #41454c;
     border: 1px solid #696969;
     color: #787878;
-}
+} */
 
 QSplitter::handle {
     background-color: #444851;
