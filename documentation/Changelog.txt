@@ -1,4 +1,4 @@
-Version 2.1 (February 2026)
+Version 2.1 (March 2026)
 
 New Features
 - Supermodules can be created, saved, and applied to future patches!
@@ -17,6 +17,7 @@ New Features
 - New button to display the grid-view of all pages simultaneously.
   - In here, users can edit page names and move modules around.
   - Make sure you re-export to have these changes apply.
+- Modified the imported patch merge feature so that users can choose which patch (if any) to link PS metadata.
 - Local patch names can now be edited similarly to tags and categories (double-click on name text to modify).
 - Version Histories can be broken up into individual patches.
   - This can apply to any set of patches in the VH, however if all are chosen, the VH will be deleted.

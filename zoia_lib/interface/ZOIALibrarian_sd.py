@@ -21,7 +21,7 @@ class ZOIALibrarianSD(QMainWindow):
     activities contained within the SD Card View tab of the application.
     """
 
-    def __init__(self, ui, save, msg, delete, util):
+    def __init__(self, ui, save, msg, delete, util, ps_link_selector=None):
         """Initializes the class with the required parameters.
 
         ui: The UI component of ZOIALibrarianMain
@@ -29,6 +29,9 @@ class ZOIALibrarianSD(QMainWindow):
         msg: A template QMessageBox.
         delete: Helper class to access backend deletion methods.
         util: Helper class to access UI utility methods.
+        ps_link_selector: Optional callback that returns
+                          (proceed, selected_patchstorage_id) for an
+                          import path.
         """
 
         # Needed to make use of self.sender()
@@ -40,6 +43,7 @@ class ZOIALibrarianSD(QMainWindow):
         self.msg = msg
         self.delete = delete
         self.util = util
+        self.ps_link_selector = ps_link_selector
 
         self.sd_path_full = None
         self.sd_root = None
@@ -228,8 +232,19 @@ class ZOIALibrarianSD(QMainWindow):
                     # Try to import the patch and notify the user of the
                     # result via a popup.
                     try:
+                        import_path = os.path.join(self.sd_path_full, sd_pch)
+                        proceed = True
+                        ps_metadata_id = None
+                        if self.ps_link_selector is not None:
+                            proceed, ps_metadata_id = self.ps_link_selector(import_path)
+                        if not proceed:
+                            self.ui.statusbar.showMessage("Import cancelled.", timeout=5000)
+                            return
+
                         self.save.import_to_backend(
-                            os.path.join(self.sd_path_full, sd_pch)
+                            import_path,
+                            ps_metadata_id=ps_metadata_id,
+                            disable_auto_ps_link=True,
                         )
                         self.ui.statusbar.showMessage("Import complete.", timeout=5000)
                         # self.msg.setIcon(QMessageBox.Information)
