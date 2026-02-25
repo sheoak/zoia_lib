@@ -1443,12 +1443,27 @@ class ZOIALibrarianMain(QMainWindow):
         title = re.sub(r"[_\-./]+", " ", title)
         title = re.sub(r"[^a-z0-9\s]+", " ", title)
         title = re.sub(r"\s+", " ", title).strip()
+        # Remove trailing version/index suffixes that commonly appear in file exports.
+        # Examples: "loom 1 1", "loom v2", "loom rev 3", "loom version 10".
+        title = re.sub(
+            r"(?:\s+(?:v|ver|rev|version)?\s*\d+)+$",
+            "",
+            title,
+        ).strip()
         return title
 
     @staticmethod
     def _tokenize_match_title(title):
         stop_words = {"zoia", "patch", "empress", "the", "a", "an", "for", "and"}
-        return [tok for tok in title.split(" ") if tok and tok not in stop_words]
+        tokens = []
+        for tok in title.split(" "):
+            if not tok or tok in stop_words:
+                continue
+            # Numeric tokens are usually slot/revision noise from filenames.
+            if tok.isdigit():
+                continue
+            tokens.append(tok)
+        return tokens
 
     def _score_match(self, import_title, import_tokens, candidate_title):
         """Return a 0..1 score for import title vs PatchStorage title."""
