@@ -525,6 +525,34 @@ class ZOIALibrarianMain(QMainWindow):
 
         self.sort_and_set()
 
+    @staticmethod
+    def _join_named_items(items, index):
+        """Formats a list of named metadata items into readable text."""
+
+        names = [item.get("name", "") for item in items if item.get("name", "")]
+        length = len(names)
+        if length > 2:
+            return ", ".join(names[:-1]) + ", and " + names[-1]
+        if length == 2:
+            return names[0] + " and " + names[1]
+        if length == 1:
+            return names[0]
+        return "No " + index
+
+    @staticmethod
+    def _compact_tags_text(items, max_tags=8):
+        """Returns a compact tags preview to prevent oversized table rows."""
+
+        names = [item.get("name", "") for item in items if item.get("name", "")]
+        if not names:
+            return "No tags"
+        if len(names) <= max_tags:
+            return ZOIALibrarianMain._join_named_items(items, "tags")
+
+        visible = names[:max_tags]
+        remaining = len(names) - max_tags
+        return ", ".join(visible) + ", +" + str(remaining) + " more"
+
     def set_data(self, search=False, version=False):
         """Sets the data for the various patch tables. This is done
         when the app begins, whenever a tab is returned to, whenever a
@@ -621,24 +649,17 @@ class ZOIALibrarianMain(QMainWindow):
             # Text for the headers "Tags" and "Categories"
             for j in range(2):
                 index = "tags" if j == 0 else "categories"
-                text = ""
-                length = len(data[i][index])
-                if length > 2:
-                    for k in range(0, length - 1):
-                        text += data[i][index][k]["name"] + ", "
-                    text += "and " + data[i][index][length - 1]["name"]
-                elif length == 2:
-                    text = (
-                        data[i][index][0]["name"] + " and " + data[i][index][1]["name"]
-                    )
-                else:
-                    try:
-                        text = data[i][index][0]["name"]
-                    except IndexError:
-                        text = "No " + index
+                full_text = self._join_named_items(data[i][index], index)
+                display_text = (
+                    self._compact_tags_text(data[i][index])
+                    if index == "tags"
+                    else full_text
+                )
 
-                text_item = QTableWidgetItem(text)
+                text_item = QTableWidgetItem(display_text)
                 text_item.setTextAlignment(Qt.AlignCenter)
+                if display_text != full_text:
+                    text_item.setToolTip(full_text)
                 # Can only edit tags/cats in Local Storage View.
                 if (
                     table_index == 1

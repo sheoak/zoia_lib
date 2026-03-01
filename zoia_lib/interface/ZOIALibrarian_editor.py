@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import copy
+import html
 from PySide6.QtWidgets import (
     QMainWindow,
     QComboBox,
@@ -29,6 +30,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QCheckBox,
+    QTextEdit,
+    QDialogButtonBox,
 )
 from PySide6.QtCore import Qt, QMimeData
 from PySide6.QtGui import QDrag
@@ -145,6 +148,7 @@ class PatchBuilderEditor(QMainWindow):
         self.module_search.setPlaceholderText("Search modules...")
         self.module_list = QTreeWidget()
         self.module_list.setHeaderHidden(True)
+        self.module_list.setContextMenuPolicy(Qt.CustomContextMenu)
         categories = {}
         for mod_id, mod in self.module_index.items():
             name = mod.get("name", "")
@@ -157,6 +161,7 @@ class PatchBuilderEditor(QMainWindow):
                 self.module_list.addTopLevelItem(categories[category])
             child = QTreeWidgetItem([mod["name"]])
             child.setData(0, 1, mod_id)
+            child.setToolTip(0, self._module_tooltip(mod_id, mod["name"]))
             categories[category].addChild(child)
         # self.module_list.expandAll()
         module_list_layout.addWidget(module_label)
@@ -240,6 +245,7 @@ class PatchBuilderEditor(QMainWindow):
         self.save_supermodule_btn.clicked.connect(self.save_selected_supermodule)
         self.supermodule_delete_btn.clicked.connect(self.delete_selected_supermodule)
         self.module_list.currentItemChanged.connect(self._update_supermodule_controls)
+        self.module_list.customContextMenuRequested.connect(self._open_module_tree_context_menu)
         self.module_search.textChanged.connect(self._filter_module_tree)
         self.selected_list.itemSelectionChanged.connect(self.on_module_selected)
         self.selected_list.model().rowsAboutToBeMoved.connect(self._on_modules_about_to_move)
@@ -272,13 +278,12 @@ class PatchBuilderEditor(QMainWindow):
         if mod_id == "supermodule":
             self._add_supermodule_from_tree(item)
             return
-        mod = self.module_index[mod_id]
         # For now, just add with default config
         insert_row = len(self.selected_modules)
         config = self._default_module_config(mod_id)
         self._assign_module_position(config, mod_id=mod_id)
         self.selected_modules.append((mod_id, config))
-        self.selected_list.addItem(f"{mod['name']} ({mod['category']})")
+        self.selected_list.addItem(self._build_selected_list_item(mod_id, config))
         self.selected_list.setCurrentRow(insert_row)
         self._recalc_module_blocks_and_params(insert_row)
         self._refresh_routing_view()
@@ -381,6 +386,72 @@ class PatchBuilderEditor(QMainWindow):
             row = self.selected_list.row(item)
             self._duplicate_module_at_index(row)
 
+    def _open_module_tree_context_menu(self, pos):
+        item = self.module_list.itemAt(pos)
+        if item is None or item.data(0, 1) != "supermodule":
+            return
+        super_index = item.data(0, Qt.UserRole)
+        if super_index is None or super_index < 0 or super_index >= len(self.supermodules):
+            return
+        menu = QMenu(self.module_list)
+        set_description_action = menu.addAction("Edit Supermodule")
+        action = menu.exec(self.module_list.mapToGlobal(pos))
+        if action == set_description_action:
+            self._edit_supermodule_metadata(super_index)
+
+    def _edit_supermodule_metadata(self, super_index):
+        if super_index < 0 or super_index >= len(self.supermodules):
+            return
+        entry = self.supermodules[super_index]
+        if not isinstance(entry, dict):
+            entry = {"name": str(entry)}
+        current_name = entry.get("name", f"Supermodule {super_index + 1}")
+        current_desc = entry.get("description", "")
+        if not isinstance(current_name, str):
+            current_name = str(current_name)
+        if not isinstance(current_desc, str):
+            current_desc = str(current_desc)
+
+        name, description, ok = self._prompt_supermodule_metadata(
+            name=current_name,
+            description=current_desc,
+            title="Edit Supermodule",
+        )
+        if not ok:
+            return
+
+        conflict_index = None
+        for idx, item in enumerate(self.supermodules):
+            if idx == super_index:
+                continue
+            if isinstance(item, dict):
+                existing_name = item.get("name", "")
+            else:
+                existing_name = str(item)
+            if str(existing_name).strip().lower() == name.lower():
+                conflict_index = idx
+                break
+
+        entry["name"] = name
+        entry["description"] = description.strip()
+
+        if conflict_index is not None:
+            choice = QMessageBox.question(
+                self,
+                "Overwrite Supermodule",
+                "A supermodule with this name already exists. Overwrite it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                return
+            self.supermodules[conflict_index] = entry
+            self.supermodules.pop(super_index)
+        else:
+            self.supermodules[super_index] = entry
+        self._save_supermodules()
+        self._refresh_supermodule_list()
+
     def _duplicate_module_at_index(self, index):
         if index < 0 or index >= len(self.selected_modules):
             return
@@ -390,10 +461,7 @@ class PatchBuilderEditor(QMainWindow):
         self._assign_module_position(new_config, mod_id=mod_id)
         insert_row = index + 1
         self.selected_modules.insert(insert_row, (mod_id, new_config))
-        display_name = self._module_display_name(mod_id, new_config)
-        self.selected_list.insertItem(
-            insert_row, f"{display_name} ({self.module_index[mod_id]['category']})"
-        )
+        self.selected_list.insertItem(insert_row, self._build_selected_list_item(mod_id, new_config))
         self._shift_connections(insert_row, 1)
         self.selected_list.setCurrentRow(insert_row)
         self._recalc_module_blocks_and_params(insert_row)
@@ -422,12 +490,13 @@ class PatchBuilderEditor(QMainWindow):
             return
 
         selected_rows = sorted({self.selected_list.row(item) for item in selected_items})
-        name, ok = QInputDialog.getText(
-            self, "Supermodule Name", "Enter a name for this supermodule:"
+        name, description, ok = self._prompt_supermodule_metadata(
+            name="",
+            description="",
+            title="Save Supermodule",
         )
-        if not ok or not name.strip():
+        if not ok:
             return
-        name = name.strip()
 
         modules = []
         index_map = {old: new for new, old in enumerate(selected_rows)}
@@ -468,12 +537,17 @@ class PatchBuilderEditor(QMainWindow):
             "name": name,
             "modules": modules,
             "connections": connections,
+            "description": description.strip(),
             "created_at": "{:%Y-%m-%dT%H:%M:%S}".format(datetime.datetime.now()),
         }
 
         existing_index = None
         for idx, item in enumerate(self.supermodules):
-            if item.get("name", "").strip().lower() == name.lower():
+            if isinstance(item, dict):
+                existing_name = item.get("name", "")
+            else:
+                existing_name = str(item)
+            if str(existing_name).strip().lower() == name.lower():
                 existing_index = idx
                 break
         if existing_index is not None:
@@ -559,9 +633,8 @@ class PatchBuilderEditor(QMainWindow):
                 preferred_page=preferred_page,
             )
             self.selected_modules.insert(insert_row + offset, (mod_id, config))
-            display_name = self._module_display_name(mod_id, config)
             self.selected_list.insertItem(
-                insert_row + offset, f"{display_name} ({self.module_index[mod_id]['category']})"
+                insert_row + offset, self._build_selected_list_item(mod_id, config)
             )
             self._recalc_module_blocks_and_params(insert_row + offset)
             if config.get("position"):
@@ -732,6 +805,7 @@ class PatchBuilderEditor(QMainWindow):
             QMessageBox.warning(self, "Supermodule Save Failed", "Unable to save supermodules.")
 
     def _refresh_supermodule_list(self):
+        was_expanded = self.supermodule_category.isExpanded()
         self.supermodule_category.takeChildren()
         for idx, item in enumerate(self.supermodules):
             if isinstance(item, dict):
@@ -746,9 +820,76 @@ class PatchBuilderEditor(QMainWindow):
             entry.setText(0, name)
             entry.setData(0, 1, "supermodule")
             entry.setData(0, Qt.UserRole, idx)
+            entry.setToolTip(0, self._supermodule_tooltip(item, name))
             self.supermodule_category.addChild(entry)
-        self.supermodule_category.setExpanded(False)
+        self.supermodule_category.setExpanded(was_expanded)
         self._update_supermodule_controls()
+
+    def _supermodule_tooltip(self, entry, fallback_name):
+        if isinstance(entry, dict):
+            name = entry.get("name", fallback_name)
+            modules = entry.get("modules", [])
+            description = entry.get("description", "")
+        else:
+            name = fallback_name
+            modules = []
+            description = ""
+
+        name = str(name).strip() if name is not None else fallback_name
+        description = str(description).strip() if description is not None else ""
+
+        safe_name = html.escape(name)
+        tooltip = f"<b>{safe_name}</b>"
+        if isinstance(modules, list) and modules:
+            lines = []
+            for module in modules:
+                label = ""
+                if isinstance(module, dict):
+                    label = module.get("name", "")
+                    mod_id = str(module.get("mod_id", ""))
+                    if not isinstance(label, str) or not label.strip():
+                        mod = self.module_index.get(mod_id, {})
+                        label = mod.get("name", "")
+                if not isinstance(label, str) or not label.strip():
+                    label = "Unnamed Module"
+                lines.append(f"• {html.escape(label.strip())}")
+            tooltip = f"{tooltip}<br><br>{'<br>'.join(lines)}"
+        if description:
+            safe_description = html.escape(description).replace("\n", "<br>")
+            tooltip = f"{tooltip}<br><br>{safe_description}"
+        return tooltip
+
+    def _prompt_supermodule_metadata(self, name, description, title):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Name:"))
+        name_edit = QLineEdit(dialog)
+        name_edit.setText(name or "")
+        layout.addWidget(name_edit)
+
+        layout.addWidget(QLabel("Description:"))
+
+        text_edit = QTextEdit(dialog)
+        text_edit.setAcceptRichText(False)
+        text_edit.setLineWrapMode(QTextEdit.WidgetWidth)
+        text_edit.setPlainText(description or "")
+        text_edit.setMinimumSize(420, 160)
+        layout.addWidget(text_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return "", "", False
+        final_name = name_edit.text().strip()
+        if not final_name:
+            QMessageBox.warning(self, "Invalid Name", "Supermodule name cannot be empty.")
+            return "", "", False
+        return final_name, text_edit.toPlainText(), True
 
     def _update_supermodule_controls(self):
         item = self.module_list.currentItem()
@@ -774,9 +915,15 @@ class PatchBuilderEditor(QMainWindow):
         self.param_controls = {}
 
         mod = self.module_index[mod_id]
-
+        module_type = mod.get("name", "")
+        display_name = self._module_display_name(mod_id, config)
         # Module info header
-        info_label = QLabel(f"<b>{mod['name']}</b>\nCategory: {mod['category']}")
+        if display_name and display_name != module_type:
+            info_text = f"<b>{display_name} [{module_type}]</b>"
+        else:
+            info_text = f"<b>{module_type}</b>"
+        info_label = QLabel(info_text)
+        info_label.setToolTip(self._module_tooltip(mod_id, module_type))
         self.details_layout.addWidget(info_label)
 
         # CPU info
@@ -1364,9 +1511,7 @@ class PatchBuilderEditor(QMainWindow):
                 self._apply_starred_params(mod_id, module, starred)
                 # Store the full module dict from the patch (includes parameters)
                 self.selected_modules.append((mod_id, module))
-                # Show module with its name
-                display_name = module.get("name", mod["name"]) or mod["name"]
-                self.selected_list.addItem(f"{display_name} ({mod['category']})")
+                self.selected_list.addItem(self._build_selected_list_item(mod_id, module))
 
     def _init_new_patch_defaults(self):
         audio_in_id = "1"
@@ -1375,11 +1520,10 @@ class PatchBuilderEditor(QMainWindow):
             return
 
         for mod_id in (audio_in_id, audio_out_id):
-            mod = self.module_index[mod_id]
             config = self._default_module_config(mod_id)
             self._assign_module_position(config, mod_id=mod_id)
             self.selected_modules.append((mod_id, config))
-            self.selected_list.addItem(f"{mod['name']} ({mod['category']})")
+            self.selected_list.addItem(self._build_selected_list_item(mod_id, config))
 
         if self.selected_modules:
             self.selected_list.setCurrentRow(0)
@@ -1857,6 +2001,39 @@ class PatchBuilderEditor(QMainWindow):
         mod_id = str(mod_id)
         mod = self.module_index.get(mod_id, {})
         return config.get("name") if config and config.get("name") else mod.get("name", "")
+
+    def _module_description(self, mod_id):
+        mod = self.module_index.get(str(mod_id), {})
+        raw = mod.get("description", "")
+        if raw is None:
+            return ""
+        return " ".join(str(raw).split())
+
+    def _module_tooltip(self, mod_id, display_name=None):
+        mod = self.module_index.get(str(mod_id), {})
+        name = display_name or mod.get("name", "")
+        description = self._module_description(mod_id)
+        if description:
+            return f"<b>{name}</b><br><br>{description}"
+        return f"<b>{name}</b>"
+
+    def _build_selected_list_item(self, mod_id, config):
+        mod = self.module_index.get(str(mod_id), {})
+        module_type = mod.get("name", "")
+        custom_name = config.get("name") if isinstance(config, dict) else None
+        custom_name = custom_name.strip() if isinstance(custom_name, str) else ""
+
+        if custom_name and custom_name != module_type:
+            label = f"{custom_name} [{module_type}]"
+        else:
+            label = module_type
+
+        item = QListWidgetItem(label)
+        tooltip = self._module_tooltip(mod_id, module_type)
+        if custom_name and custom_name != module_type:
+            tooltip = f"{tooltip}<br><br>Custom Name: {custom_name}"
+        item.setToolTip(tooltip)
+        return item
 
     def _module_start_position(self, config):
         position = config.get("position", [0]) if config else [0]
