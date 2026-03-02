@@ -594,6 +594,19 @@ class ZOIALibrarianLocal(QMainWindow):
                an array with the names of every patch that was updated.
         """
 
+        # Defensive guard for malformed worker payloads.
+        if not isinstance(count, (list, tuple)) or len(count) < 2:
+            self.ui.statusbar.showMessage("Update check failed.", timeout=5000)
+            self.msg.setWindowTitle("Update Failed")
+            self.msg.setIcon(QMessageBox.Warning)
+            self.msg.setText("Could not complete patch update checks.")
+            self.msg.setStandardButtons(QMessageBox.Ok)
+            self.msg.exec_()
+            self.ui.check_for_updates_btn.setEnabled(True)
+            self.ui.refresh_pch_btn.setEnabled(True)
+            self.ui.btn_dwn_all.setEnabled(True)
+            return
+
         # Check to see if we actually got an updates and let the user know.
         if count[0] == 0:
             self.ui.statusbar.showMessage("No updates needed.", timeout=5000)
@@ -612,10 +625,11 @@ class ZOIALibrarianLocal(QMainWindow):
                 self.msg.setText("Successfully updated 1 patch:")
                 self.msg.setDetailedText("\t* {}".format(count[1][0]))
             else:
-                self.msg.setText("Successfully updated {} patches:".format(count))
+                self.msg.setText("Successfully updated {} patches:".format(count[0]))
                 text = ""
                 for i in range(count[0]):
                     text += "\t* {}\n".format(count[1][i])
+                self.msg.setDetailedText(text)
             self.msg.setStandardButtons(QMessageBox.Ok)
             self.msg.exec_()
 
@@ -710,7 +724,7 @@ class ZOIALibrarianLocal(QMainWindow):
         if len(versions) == self._count_version_files(self.curr_ver):
             self.msg.setText(
                 "This will split the version history into individual local patches "
-                "and delete the original version history. Continue?"
+                "and keep one version linked to the original PatchStorage ID. Continue?"
             )
         else:
             self.msg.setText(
@@ -734,9 +748,10 @@ class ZOIALibrarianLocal(QMainWindow):
             return
 
         remaining_versions = self._count_version_files(self.curr_ver)
-        if remaining_versions == 0:
+        if remaining_versions <= 1:
             self.go_back()
             self.get_local_patches()
+            self.ui.searchbar_local.setText("")
         else:
             self.get_version_patches(True, self.curr_ver)
         self.ui.statusbar.showMessage("Successfully split version history.", timeout=5000)
@@ -1943,7 +1958,7 @@ class UpdatesWorker(QThread):
     """
 
     # UI communication
-    signal = QtCore.Signal(list)
+    signal = QtCore.Signal(object)
 
     def __init__(self):
         """Initializes the thread."""
@@ -1956,5 +1971,8 @@ class UpdatesWorker(QThread):
         Currently triggered via a button press.
         """
 
-        count = update.check_for_updates()
+        try:
+            count = update.check_for_updates()
+        except Exception:
+            count = []
         self.signal.emit(count)

@@ -946,33 +946,57 @@ class ZOIALibrarianMain(QMainWindow):
                     self.ui.text_browser_viz.setText("")
                 elif self.ui.tabs.currentIndex() == 3:
                     curr_browser = self.ui.text_browser_bank
-                self.local.set_local_selected(name)
-                # Determine if we need to worry about a version extension.
+                patch_dir = os.path.join(self.path, name)
+
+                # Resolve a real patch stem from disk so edge cases like a
+                # single remaining version file (e.g. id_v4.json) are handled.
+                patch_stem = None
                 if ver != "":
-                    self.local.set_local_selected("{}_{}".format(name, ver))
-                try:
-                    with open(os.path.join(self.path, name, name + ".json")) as f:
-                        content = json.loads(f.read())
-                except FileNotFoundError:
-                    with open(
-                        os.path.join(self.path, name, name + "_{}.json".format(ver))
-                    ) as f:
-                        content = json.loads(f.read())
+                    version_stem = "{}_{}".format(name, ver)
+                    if os.path.isfile(os.path.join(patch_dir, version_stem + ".json")):
+                        patch_stem = version_stem
+                if patch_stem is None and os.path.isfile(
+                    os.path.join(patch_dir, name + ".json")
+                ):
+                    patch_stem = name
+                if patch_stem is None and os.path.isdir(patch_dir):
+                    candidates = []
+                    for entry in os.listdir(patch_dir):
+                        if not entry.endswith(".json"):
+                            continue
+                        stem = entry[:-5]
+                        if not stem.startswith(name + "_v"):
+                            continue
+                        suffix = stem.split("_v")[-1]
+                        ver_num = int(suffix) if suffix.isdigit() else -1
+                        candidates.append((ver_num, stem))
+                    if candidates:
+                        candidates.sort(reverse=True)
+                        patch_stem = candidates[0][1]
+                if patch_stem is None:
+                    raise FileNotFoundError(
+                        "No metadata file found for patch {}".format(name)
+                    )
+
+                self.local.set_local_selected(patch_stem)
+                with open(os.path.join(patch_dir, patch_stem + ".json")) as f:
+                    content = json.loads(f.read())
                 # We are on the Local Storage View, so set the viz up.
                 if viz_browser is not None:
+                    bin_path = os.path.join(patch_dir, patch_stem + ".bin")
+                    if not os.path.isfile(bin_path):
+                        fallback_bin = os.path.join(patch_dir, name + ".bin")
+                        if os.path.isfile(fallback_bin):
+                            bin_path = fallback_bin
                     try:
-                        with open(
-                            os.path.join(self.path, name, name + ".bin"), "rb"
-                        ) as f:
+                        with open(bin_path, "rb") as f:
                             viz = binary.parse_data(f.read())
-                    except FileNotFoundError:
-                        with open(
-                            os.path.join(self.path, name, name + "_{}.bin".format(ver)),
-                            "rb",
-                        ) as f:
-                            viz = binary.parse_data(f.read())
-                    self.local.setup_viz(viz)
-                    self.ui.btn_show_routing.setEnabled(True)
+                        self.local.setup_viz(viz)
+                        self.ui.btn_show_routing.setEnabled(True)
+                    except Exception:
+                        # Leave info view usable even if a binary is malformed.
+                        self.ui.btn_show_routing.setEnabled(False)
+                        self.ui.text_browser_viz.setText("")
 
             # HTML code for the patch preview.
             if not skip:
