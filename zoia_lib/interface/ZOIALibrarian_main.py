@@ -3,6 +3,8 @@ import os
 import platform
 import requests
 import hashlib
+import re
+from difflib import SequenceMatcher
 from os.path import expanduser
 
 from PySide6 import QtCore
@@ -12,6 +14,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QMessageBox,
+    QInputDialog,
     QTableWidgetItem,
     QRadioButton,
     QFileDialog,
@@ -82,7 +85,9 @@ class ZOIALibrarianMain(QMainWindow):
 
         # Helper classes init
         self.util = ZOIALibrarianUtil(self.ui, api, self)
-        self.sd = ZOIALibrarianSD(self.ui, save, self.msg, delete, self.util)
+        self.sd = ZOIALibrarianSD(
+            self.ui, save, self.msg, delete, self.util, self._select_ps_metadata_link
+        )
         self.bank = ZOIALibrarianBank(
             self.ui, self.path, self.sd, self.msg, self.util, self
         )
@@ -131,7 +136,7 @@ class ZOIALibrarianMain(QMainWindow):
         self.tab_3 = -1
         # self.add_rating = None
         # self.add_download_date = None
-        self._version = "2.0"
+        self._version = '2.1'
 
         # Threads
         self.worker_mass = ImportMassWorker(self)
@@ -314,6 +319,7 @@ class ZOIALibrarianMain(QMainWindow):
         self.ui.refresh_pch_btn.clicked.connect(self.ps.reload_ps_thread)
         self.ui.update_patch_notes.clicked.connect(self.local.update_patch_notes)
         self.ui.upload_patch.clicked.connect(self.local.upload_patch)
+        self.ui.split_version.clicked.connect(self.local.split_version_history)
         self.ui.actionImport_A_Patch.triggered.connect(self.import_patch)
         self.ui.actionReset_Sizes.triggered.connect(self.reset_ui)
         self.ui.actionCheck_for_Updates.triggered.connect(self.check_for_updates)
@@ -322,6 +328,9 @@ class ZOIALibrarianMain(QMainWindow):
         self.ui.actionTips_Tricks.triggered.connect(self.util.tips)
         self.ui.actionModule_Index.triggered.connect(self.util.mod_idx)
         self.ui.actionFirmware_Files.triggered.connect(self.util.firmware)
+        self.ui.table_local.cellDoubleClicked.connect(
+            self.local.handle_title_double_click
+        )
         self.ui.table_local.installEventFilter(self)
         self.ui.table_sd_left.installEventFilter(self)
         self.ui.table_sd_right.installEventFilter(self)
@@ -516,6 +525,34 @@ class ZOIALibrarianMain(QMainWindow):
 
         self.sort_and_set()
 
+    @staticmethod
+    def _join_named_items(items, index):
+        """Formats a list of named metadata items into readable text."""
+
+        names = [item.get("name", "") for item in items if item.get("name", "")]
+        length = len(names)
+        if length > 2:
+            return ", ".join(names[:-1]) + ", and " + names[-1]
+        if length == 2:
+            return names[0] + " and " + names[1]
+        if length == 1:
+            return names[0]
+        return "No " + index
+
+    @staticmethod
+    def _compact_tags_text(items, max_tags=8):
+        """Returns a compact tags preview to prevent oversized table rows."""
+
+        names = [item.get("name", "") for item in items if item.get("name", "")]
+        if not names:
+            return "No tags"
+        if len(names) <= max_tags:
+            return ZOIALibrarianMain._join_named_items(items, "tags")
+
+        visible = names[:max_tags]
+        remaining = len(names) - max_tags
+        return ", ".join(visible) + ", +" + str(remaining) + " more"
+
     def set_data(self, search=False, version=False):
         """Sets the data for the various patch tables. This is done
         when the app begins, whenever a tab is returned to, whenever a
@@ -604,29 +641,25 @@ class ZOIALibrarianMain(QMainWindow):
             # Connect the button and insert into the table.
             btn_title.toggled.connect(self.display_patch_info)
             btn_title.setFont(self.ui.table_PS.font())
+            if table_index == 1:
+                btn_title.setProperty("row", i)
+                btn_title.installEventFilter(self.local)
             curr_table.setCellWidget(i, 0, btn_title)
 
             # Text for the headers "Tags" and "Categories"
             for j in range(2):
                 index = "tags" if j == 0 else "categories"
-                text = ""
-                length = len(data[i][index])
-                if length > 2:
-                    for k in range(0, length - 1):
-                        text += data[i][index][k]["name"] + ", "
-                    text += "and " + data[i][index][length - 1]["name"]
-                elif length == 2:
-                    text = (
-                        data[i][index][0]["name"] + " and " + data[i][index][1]["name"]
-                    )
-                else:
-                    try:
-                        text = data[i][index][0]["name"]
-                    except IndexError:
-                        text = "No " + index
+                full_text = self._join_named_items(data[i][index], index)
+                display_text = (
+                    self._compact_tags_text(data[i][index])
+                    if index == "tags"
+                    else full_text
+                )
 
-                text_item = QTableWidgetItem(text)
+                text_item = QTableWidgetItem(display_text)
                 text_item.setTextAlignment(Qt.AlignCenter)
+                if display_text != full_text:
+                    text_item.setToolTip(full_text)
                 # Can only edit tags/cats in Local Storage View.
                 if (
                     table_index == 1
@@ -913,33 +946,57 @@ class ZOIALibrarianMain(QMainWindow):
                     self.ui.text_browser_viz.setText("")
                 elif self.ui.tabs.currentIndex() == 3:
                     curr_browser = self.ui.text_browser_bank
-                self.local.set_local_selected(name)
-                # Determine if we need to worry about a version extension.
+                patch_dir = os.path.join(self.path, name)
+
+                # Resolve a real patch stem from disk so edge cases like a
+                # single remaining version file (e.g. id_v4.json) are handled.
+                patch_stem = None
                 if ver != "":
-                    self.local.set_local_selected("{}_{}".format(name, ver))
-                try:
-                    with open(os.path.join(self.path, name, name + ".json")) as f:
-                        content = json.loads(f.read())
-                except FileNotFoundError:
-                    with open(
-                        os.path.join(self.path, name, name + "_{}.json".format(ver))
-                    ) as f:
-                        content = json.loads(f.read())
+                    version_stem = "{}_{}".format(name, ver)
+                    if os.path.isfile(os.path.join(patch_dir, version_stem + ".json")):
+                        patch_stem = version_stem
+                if patch_stem is None and os.path.isfile(
+                    os.path.join(patch_dir, name + ".json")
+                ):
+                    patch_stem = name
+                if patch_stem is None and os.path.isdir(patch_dir):
+                    candidates = []
+                    for entry in os.listdir(patch_dir):
+                        if not entry.endswith(".json"):
+                            continue
+                        stem = entry[:-5]
+                        if not stem.startswith(name + "_v"):
+                            continue
+                        suffix = stem.split("_v")[-1]
+                        ver_num = int(suffix) if suffix.isdigit() else -1
+                        candidates.append((ver_num, stem))
+                    if candidates:
+                        candidates.sort(reverse=True)
+                        patch_stem = candidates[0][1]
+                if patch_stem is None:
+                    raise FileNotFoundError(
+                        "No metadata file found for patch {}".format(name)
+                    )
+
+                self.local.set_local_selected(patch_stem)
+                with open(os.path.join(patch_dir, patch_stem + ".json")) as f:
+                    content = json.loads(f.read())
                 # We are on the Local Storage View, so set the viz up.
                 if viz_browser is not None:
+                    bin_path = os.path.join(patch_dir, patch_stem + ".bin")
+                    if not os.path.isfile(bin_path):
+                        fallback_bin = os.path.join(patch_dir, name + ".bin")
+                        if os.path.isfile(fallback_bin):
+                            bin_path = fallback_bin
                     try:
-                        with open(
-                            os.path.join(self.path, name, name + ".bin"), "rb"
-                        ) as f:
+                        with open(bin_path, "rb") as f:
                             viz = binary.parse_data(f.read())
-                    except FileNotFoundError:
-                        with open(
-                            os.path.join(self.path, name, name + "_{}.bin".format(ver)),
-                            "rb",
-                        ) as f:
-                            viz = binary.parse_data(f.read())
-                    self.local.setup_viz(viz)
-                    self.ui.btn_show_routing.setEnabled(True)
+                        self.local.setup_viz(viz)
+                        self.ui.btn_show_routing.setEnabled(True)
+                    except Exception:
+                        # Leave info view usable even if a binary is malformed.
+                        self.ui.btn_show_routing.setEnabled(False)
+                        self.ui.text_browser_viz.setText("")
 
             # HTML code for the patch preview.
             if not skip:
@@ -1063,6 +1120,7 @@ class ZOIALibrarianMain(QMainWindow):
             self.ui.searchbar_local.setText("")
             self.ui.update_patch_notes.setEnabled(False)
             self.ui.upload_patch.setEnabled(False)
+            self.ui.split_version.setEnabled(True)
             self.ui.back_btn_local.setEnabled(True)
             self.ui.new_patch_btn.setEnabled(False)
             self.ui.back_btn.setEnabled(False)
@@ -1076,6 +1134,7 @@ class ZOIALibrarianMain(QMainWindow):
             self.local.set_prev_search(self.ui.searchbar_bank.text())
             self.ui.text_browser_bank.setText("")
             self.ui.searchbar_bank.setText("")
+            self.ui.split_version.setEnabled(False)
             self.ui.back_btn_bank.setEnabled(True)
             # Prepare the table.
             self.local.get_version_patches(False, self.sender().objectName())
@@ -1277,7 +1336,14 @@ class ZOIALibrarianMain(QMainWindow):
         if pch == "":
             return
         try:
-            save.import_to_backend(pch)
+            proceed, ps_metadata_id = self._select_ps_metadata_link(pch)
+            if not proceed:
+                self.ui.statusbar.showMessage("Import cancelled.", timeout=5000)
+                return
+
+            save.import_to_backend(
+                pch, ps_metadata_id=ps_metadata_id, disable_auto_ps_link=True
+            )
             self.ui.statusbar.showMessage("Import complete.", timeout=5000)
             # self.msg.setWindowTitle("Import Complete")
             # self.msg.setText("The patch has been successfully imported.")
@@ -1310,6 +1376,163 @@ class ZOIALibrarianMain(QMainWindow):
             )
             self.msg.setStandardButtons(QMessageBox.Ok)
             self.msg.exec_()
+
+    def _select_ps_metadata_link(self, path, context_label=None):
+        """Allow a user to choose which PatchStorage metadata to link.
+
+        path: The patch path being imported.
+        context_label: Optional. Extra context for the chooser prompt,
+                       e.g. "Patch 2/10".
+
+        return: Tuple of (proceed, selected_patchstorage_id).
+                selected_patchstorage_id is None when no link is chosen.
+        """
+
+        candidates = self._get_ps_metadata_candidates(path)
+        if len(candidates) == 0:
+            return True, None
+
+        options = ["Do not link PatchStorage metadata"]
+        label_to_id = {}
+        for pch in candidates:
+            label = "{} ({})".format(
+                pch.get("title", ""),
+                pch.get("author", {}).get("name", ""),
+            )
+            options.append(label)
+            label_to_id[label] = pch.get("id")
+
+        import_name = os.path.basename(path) if path else ""
+        import_name = import_name.split(".")[0].split("_zoia")[1].replace("_", " ").strip().title()
+        prompt = "Choose PatchStorage metadata to link to this imported patch: {}".format(
+            import_name
+        )
+        if context_label:
+            prompt = "{}\n{}".format(context_label, prompt)
+
+        selection, ok = QInputDialog.getItem(
+            self,
+            "Link to PatchStorage Metadata",
+            prompt,
+            options,
+            0,
+            False,
+        )
+        if not ok:
+            return False, None
+        if selection == options[0]:
+            return True, None
+
+        ps_id = label_to_id.get(selection)
+        try:
+            ps_id = int(ps_id)
+        except (ValueError, TypeError):
+            ps_id = None
+        return True, ps_id
+
+    def _get_ps_metadata_candidates(self, path):
+        """Build candidate PatchStorage metadata matches for an import path."""
+
+        if not path:
+            return []
+
+        import_title = self._normalize_match_title(path, from_path=True)
+        if import_title == "":
+            return []
+        import_tokens = self._tokenize_match_title(import_title)
+
+        data_path = os.path.join(self.path, "data.json")
+        if not os.path.exists(data_path):
+            return []
+
+        with open(data_path, "r") as f:
+            data = json.loads(f.read())
+
+        ranked = []
+        for pch in data:
+            candidate_title = self._normalize_match_title(pch.get("title", ""))
+            if candidate_title == "":
+                continue
+
+            score = self._score_match(import_title, import_tokens, candidate_title)
+            # Keep only plausible candidates.
+            if score >= 0.42:
+                ranked.append((score, pch))
+
+        ranked.sort(
+            key=lambda item: (
+                item[0],
+                item[1].get("download_count", 0),
+                item[1].get("like_count", 0),
+            ),
+            reverse=True,
+        )
+        return [pch for _, pch in ranked[:20]]
+
+    @staticmethod
+    def _normalize_match_title(text, from_path=False):
+        """Normalize a patch title or filename for fuzzy matching."""
+
+        if not text:
+            return ""
+
+        title = os.path.basename(text) if from_path else str(text)
+        title = os.path.splitext(title)[0]
+        title = title.lower().strip()
+
+        # Common local filename prefixes used for slot/index ordering.
+        title = re.sub(r"^\d{1,3}(?:[\s._-]+|$)", "", title)
+        # Remove frequent import/vendor prefixes.
+        title = re.sub(r"^(?:_?zoia_|zoia[\s._-]+|empress[\s._-]+)", "", title)
+        # Normalize separators/punctuation.
+        title = re.sub(r"[_\-./]+", " ", title)
+        title = re.sub(r"[^a-z0-9\s]+", " ", title)
+        title = re.sub(r"\s+", " ", title).strip()
+        # Remove trailing version/index suffixes that commonly appear in file exports.
+        # Examples: "loom 1 1", "loom v2", "loom rev 3", "loom version 10".
+        title = re.sub(
+            r"(?:\s+(?:v|ver|rev|version)?\s*\d+)+$",
+            "",
+            title,
+        ).strip()
+        return title
+
+    @staticmethod
+    def _tokenize_match_title(title):
+        stop_words = {"zoia", "patch", "empress", "the", "a", "an", "for", "and"}
+        tokens = []
+        for tok in title.split(" "):
+            if not tok or tok in stop_words:
+                continue
+            # Numeric tokens are usually slot/revision noise from filenames.
+            if tok.isdigit():
+                continue
+            tokens.append(tok)
+        return tokens
+
+    def _score_match(self, import_title, import_tokens, candidate_title):
+        """Return a 0..1 score for import title vs PatchStorage title."""
+
+        candidate_tokens = self._tokenize_match_title(candidate_title)
+        if not candidate_tokens:
+            return 0.0
+
+        ratio = SequenceMatcher(None, import_title, candidate_title).ratio()
+
+        import_set = set(import_tokens)
+        candidate_set = set(candidate_tokens)
+        inter = len(import_set.intersection(candidate_set))
+        coverage = inter / max(len(import_set), 1)
+        jaccard = inter / max(len(import_set.union(candidate_set)), 1)
+
+        contains = 0.0
+        if len(import_title) >= 4 and (
+            import_title in candidate_title or candidate_title in import_title
+        ):
+            contains = 1.0
+
+        # Weight sequence similarity highest, then token coverage.
+        return (0.55 * ratio) + (0.25 * coverage) + (0.12 * jaccard) + (0.08 * contains)
 
     def check_for_updates(self):
         """Checks Github to see if there has been an app update."""
@@ -1391,6 +1614,17 @@ class ZOIALibrarianMain(QMainWindow):
         Currently triggered via a menu action.
         """
 
+        input_dir = self.worker_mass.input_dir
+        if not input_dir:
+            return
+
+        import_paths = self._get_importable_bin_paths(input_dir)
+        proceed, links = self._select_ps_metadata_links_bulk(import_paths)
+        if not proceed:
+            self.ui.statusbar.showMessage("Import cancelled.", timeout=5000)
+            return
+
+        self.worker_mass.ps_metadata_links = links
         self.worker_mass.start()
 
     def _mass_import_thread_sd(self):
@@ -1399,6 +1633,17 @@ class ZOIALibrarianMain(QMainWindow):
         Currently triggered via a button press.
         """
 
+        input_dir = self.sd.get_sd_path()
+        if not input_dir:
+            return
+
+        import_paths = self._get_importable_bin_paths(input_dir)
+        proceed, links = self._select_ps_metadata_links_bulk(import_paths)
+        if not proceed:
+            self.ui.statusbar.showMessage("Import cancelled.", timeout=5000)
+            return
+
+        self.worker_mass_sd.ps_metadata_links = links
         self.worker_mass_sd.start()
 
     def _mass_import_done(self, imp_cnt, fail_cnt, fails):
@@ -1639,7 +1884,7 @@ class ZOIALibrarianMain(QMainWindow):
             return
 
         self.worker_mass.input_dir = input_dir
-        self.worker_mass.start()
+        self._mass_import_thread()
 
     def import_version_menu(self):
         input_dir = self.directory_select()
@@ -1648,6 +1893,38 @@ class ZOIALibrarianMain(QMainWindow):
 
         self.worker_version.input_dir = input_dir
         self.worker_version.start()
+
+    @staticmethod
+    def _get_importable_bin_paths(input_dir):
+        """Return absolute paths for direct .bin files in a directory."""
+
+        if not input_dir or not os.path.isdir(input_dir):
+            return []
+
+        paths = []
+        for pch in os.listdir(input_dir):
+            full_path = os.path.join(input_dir, pch)
+            if os.path.isfile(full_path) and pch.lower().endswith(".bin"):
+                paths.append(os.path.abspath(full_path))
+        return sorted(paths)
+
+    def _select_ps_metadata_links_bulk(self, import_paths):
+        """Collect PatchStorage metadata choices for a list of import paths.
+
+        return: Tuple of (proceed, mapping), where mapping is
+                {abs_import_path: selected_patchstorage_id_or_None}.
+        """
+
+        mapping = {}
+        total = len(import_paths)
+        for i, path in enumerate(import_paths, start=1):
+            proceed, ps_metadata_id = self._select_ps_metadata_link(
+                path, context_label="Patch {} of {}".format(i, total)
+            )
+            if not proceed:
+                return False, {}
+            mapping[os.path.abspath(path)] = ps_metadata_id
+        return True, mapping
 
     def closeEvent(self, event):
         """Override the default close operation so certain application
@@ -1684,6 +1961,7 @@ class ImportMassWorker(QThread):
         QThread.__init__(self)
         self.window = window
         self.input_dir = None
+        self.ps_metadata_links = {}
 
     def run(self):
         """Attempts to mass import any patches found within a target
@@ -1700,10 +1978,15 @@ class ImportMassWorker(QThread):
         input_dir = self.input_dir
 
         for pch in os.listdir(input_dir):
-            if pch.split(".")[1] == "bin":
+            if pch.lower().endswith(".bin"):
                 # Try to save the binary.
                 try:
-                    save.import_to_backend(os.path.join(input_dir, pch))
+                    import_path = os.path.abspath(os.path.join(input_dir, pch))
+                    save.import_to_backend(
+                        import_path,
+                        ps_metadata_id=self.ps_metadata_links.get(import_path),
+                        disable_auto_ps_link=True,
+                    )
                     imp_cnt += 1
                 except errors.SavingError as e:
                     fail_cnt += 1
@@ -1763,6 +2046,7 @@ class ImportMassSDWorker(QThread):
 
         QThread.__init__(self)
         self.window = window
+        self.ps_metadata_links = {}
 
     def run(self):
         """Attempts to mass import any patches found within a target
@@ -1779,10 +2063,15 @@ class ImportMassSDWorker(QThread):
         input_dir = self.window.sd.get_sd_path()
 
         for pch in os.listdir(input_dir):
-            if pch.split(".")[1] == "bin":
+            if pch.lower().endswith(".bin"):
                 # Try to save the binary.
                 try:
-                    save.import_to_backend(os.path.join(input_dir, pch))
+                    import_path = os.path.abspath(os.path.join(input_dir, pch))
+                    save.import_to_backend(
+                        import_path,
+                        ps_metadata_id=self.ps_metadata_links.get(import_path),
+                        disable_auto_ps_link=True,
+                    )
                     imp_cnt += 1
                 except errors.SavingError as e:
                     fail_cnt += 1

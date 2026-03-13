@@ -6,7 +6,7 @@ spec_root = os.path.abspath(SPECPATH)
 block_cipher = None
 app_name = 'ZOIA Librarian'
 icon = os.path.join(spec_root, 'logo.ico')
-version = '2.0'
+version = '2.1'
 
 a = Analysis(
     ['startup.py'],
@@ -26,15 +26,16 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 
-exe = EXE(pyz,
-          a.scripts, 
-	  a.binaries,
-	  a.zipfiles,
-	  a.datas,
-          name=app_name,
-          debug=False,
-          strip=False,
-          upx=True,
-          console=False,
-	  icon=icon)
-
+exe = EXE(
+    pyz,
+    a.scripts, 
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    name=app_name,
+    debug=False,
+    strip=False,
+    upx=True,
+    console=False,
+    icon=icon
+)

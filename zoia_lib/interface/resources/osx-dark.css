@@ -24,6 +24,35 @@ QMenuBar::item:pressed {
     color: #FFF;
 }
 
+/* QPushButton {
+    border-radius: 5px;
+} */
+
+/* QPushButton#editor_btn {
+    background-color: #5e616e;
+    border: 1px solid black;
+    border-radius: 5px;
+    color: #FFF;
+    padding: 2px 8px 2px 8px;
+}
+
+QPushButton#editor_btn:hover {
+    background-color: qlineargradient(x1:0.5,
+    y1: 0.5,
+    x2: 0.5,
+    y2: 1,
+    stop: 0 #454a4f,
+    stop: 0.5 #3b4045);
+    border: 1px solid #696969;
+    color: #FFF;
+}
+
+QPushButton#editor_btn:disabled {
+    background-color: #41454c;
+    border: 1px solid #696969;
+    color: #787878;
+} */
+
 QSplitter::handle {
     background-color: #444851;
     border: .1ex #76797c;

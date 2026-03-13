@@ -1,7 +1,7 @@
 # ZOIA Librarian
 Patch manager/librarian for the Empress Effects ZOIA pedal-format modular effects unit.
 
-To learn more about ZOIA and its community, join our [Discord chat server](https://discordapp.com/invite/HG5GesY),
+To learn more about ZOIA and its community, join our [Discord](https://discordapp.com/invite/HG5GesY),
 [Subreddit](https://reddit.com/r/zoia), and/or [Facebook group](https://facebook.com/groups/EmpressZOIAUsers).
 
 If you would like to leave a tip, we are accepting donations here
@@ -37,12 +37,13 @@ https://github.com/meanmedianmoge/zoia_lib/releases/latest.
     ```
 
 ## Documentation
-- Overview video and tutorial: https://www.youtube.com/watch?v=JLOUrWtG1Pk
-- Supplemental 1.1 video: https://www.youtube.com/watch?v=nP9oRLtXMUE
-- Supplemental 1.2 video: https://www.youtube.com/watch?v=zR8XSI_Unlk
-- Supplemental 1.3 video: https://www.youtube.com/watch?v=Y4ILhtxdIvs
-- Supplemental 1.4 video: https://www.youtube.com/watch?v=ymLvRhC1GmI
-- Supplemental 2.0 video: https://www.youtube.com/watch?v=j6mz4DIdEpU
+- Version 1.0 video: https://www.youtube.com/watch?v=JLOUrWtG1Pk
+- Version 1.1 video: https://www.youtube.com/watch?v=nP9oRLtXMUE
+- Version 1.2 video: https://www.youtube.com/watch?v=zR8XSI_Unlk
+- Version 1.3 video: https://www.youtube.com/watch?v=Y4ILhtxdIvs
+- Version 1.4 video: https://www.youtube.com/watch?v=ymLvRhC1GmI
+- Version 2.0 video: https://www.youtube.com/watch?v=j6mz4DIdEpU
+- Version 2.1 video: https://www.youtube.com/watch?v=VkhidyALOXM
 - You'll find the following in `documentation`: <br>
     - Current version of the user manual
     - Overall changelog - lists new features, bug fixes, and known issues for each release
@@ -75,10 +76,10 @@ either fork or clone the repo to get started. Some useful tools include:
 - QtDesigner - https://build-system.fman.io/qt-designer-download
 
 ## Authors
-- Mike Moger - app owner, primary dev after Beta 3 release, initial Python implementation
-- John Breton - primary dev, designer, and documentation creator up to Beta 3 release
-- djigneo/apparent1 - C# binary decoding and testing
-- Sranderley - binary encoding, editing, and UI
+- Mike Moger - app owner, primary dev
+- John Breton - primary dev up to Beta 3 release
+- djigneo/apparent1 - binary decoding and testing
+- Sranderley - binary encoding
 - Matthew Allen - initial UI frames and app planning
-- Special thanks to Steve Bragg and the entire Empress Effects team for supporting this work
-- Additional thanks to our beta testers and those who submitted user stories
+- Special thanks to Steve Bragg and the entire Empress Effects team for supporting this work!
+- Additional thanks to our beta testers, bug reporters, and user story writers

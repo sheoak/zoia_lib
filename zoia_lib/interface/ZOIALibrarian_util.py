@@ -80,6 +80,7 @@ class ZOIALibrarianUtil:
             self.ui.text_browser_local.setFont(big_font)
             self.ui.back_btn_local.setFont(new_font)
             self.ui.check_for_updates_btn.setFont(new_font)
+            self.ui.split_version.setFont(new_font)
             self.ui.update_patch_notes.setFont(new_font)
             self.ui.upload_patch.setFont(new_font)
             self.ui.btn_show_routing.setFont(new_font)

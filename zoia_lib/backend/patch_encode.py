@@ -18,7 +18,7 @@ class PatchEncoder(Patch):
         """"""
         super().__init__()
 
-    def encode(self, pch, output_path=None):
+    def encode(self, pch, output_path=None, param_order_mode="order"):
         """
         pch: parsed .bin using PatchBinary
         ================================================================
@@ -107,7 +107,9 @@ class PatchEncoder(Patch):
                 for value in params_raw[:params_count]:
                     module_params.extend(self.encode_value(int(value), 4))
             else:
-                param_names = self._get_param_order(module)
+                param_names = self._get_param_order(
+                    module, params_count, order_mode=param_order_mode
+                )
                 for param in param_names:
                     if module["parameters"].get(param) is None:
                         module_params.extend(self.encode_value(0, 4))
@@ -267,11 +269,73 @@ class PatchEncoder(Patch):
         return [options_binary.get(opt, 0) for opt in options_order][:8]
 
     @staticmethod
-    def _get_param_order(module):
+    def _get_param_order(module, params_count=None, order_mode="order"):
+        mod_idx = module.get("mod_idx")
+        try:
+            defaults = mod[str(mod_idx)].get("param_defaults", {})
+        except (KeyError, TypeError):
+            defaults = {}
+
+        if order_mode == "blocks":
+            blocks = module.get("blocks", {})
+            if isinstance(blocks, dict):
+                ordered = [name for name, meta in blocks.items() if meta.get("isParam")]
+                return ordered[:params_count] if params_count is not None else ordered
+
+        if isinstance(defaults, dict) and defaults:
+            items = list(defaults.items())
+            if order_mode == "order" and any(
+                isinstance(meta, dict) and "order" in meta for _, meta in items
+            ):
+                items.sort(
+                    key=lambda item: item[1].get("order", 0)
+                    if isinstance(item[1], dict)
+                    else 0
+                )
+            ordered = [name for name, _ in items]
+            blocks = module.get("blocks", {})
+            if isinstance(blocks, dict) and blocks:
+                ordered = [
+                    name
+                    for name in ordered
+                    if blocks.get(name, {}).get("isParam")
+                ]
+            return ordered[:params_count] if params_count is not None else ordered
+
         blocks = module.get("blocks", {})
         if isinstance(blocks, dict):
-            return [name for name, meta in blocks.items() if meta.get("isParam")]
-        return list(module.get("parameters", {}).keys())
+            params = [
+                (name, meta)
+                for name, meta in blocks.items()
+                if meta.get("isParam")
+            ]
+            if not params:
+                return []
+
+            def _pos(item):
+                return item[1].get("position", 0)
+
+            if params_count is None:
+                return [name for name, _ in sorted(params, key=_pos)]
+
+            default_params = [item for item in params if item[1].get("isDefault")]
+            if default_params:
+                default_params = sorted(default_params, key=_pos)
+                names = [name for name, _ in default_params]
+                if len(names) >= params_count:
+                    return names[:params_count]
+            else:
+                names = []
+
+            remaining = [
+                name
+                for name, _ in sorted(params, key=_pos)
+                if name not in names
+            ]
+            return (names + remaining)[:params_count]
+
+        params = list(module.get("parameters", {}).keys())
+        return params[:params_count] if params_count is not None else params
 
     def _get_saved_data_bytes(self, module, params_count):
         size_words = module.get("size", 0)

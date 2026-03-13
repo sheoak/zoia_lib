@@ -1,4 +1,43 @@
+Version 2.1 (March 2026)
+
+New Features
+- Supermodules can be created, saved, and applied to future patches!
+  - These are groups of modules or recipes that serve as quick patching tools.
+- Custom default values can also be saved per module, globally.
+  - You can reset these overrides to use the factory defaults, if desired.
+- Parameter values now display the unit selection (such as ms, Hz, or %) for smoother workflows.
+  - These may not reflect the exact hardware values due to rounding or exponential scaling.
+- Params can also be starred with a midi CC, which are saved to the exported patch.
+- Search bar to find and sort modules quickly.
+- Simplified the process to add modules to the patch (double click, no more insert-between).
+  - Also added drag & drop to reorder the module list.
+  - And a "duplicate" module function via right-clicking on a particular module instance.
+- Hovering over a module displays the description from the Module Index (or custom Supermodule) in a hover tooltip.
+- The Expander view in the Editor can be used to connect modules together for quicker routing.
+  - Default behavior has been changed to allow for clicks vs alt-click to move nodes and edges.
+- New button to display the grid-view of all pages simultaneously.
+  - In here, users can edit page names and move modules around.
+  - Make sure you re-export to have these changes apply.
+- Modified the imported patch merge feature so that users can choose which patch (if any) to link PS metadata.
+- Local patch names can now be edited similarly to tags and categories (double-click on name text to modify).
+- Version Histories can be broken up into individual patches.
+  - This can apply to any set of patches in the VH, however if all are chosen, the VH will be deleted.
+- Condensed the amount of tags for patches in the PS tab so vertical spacing is maintained.
+- More deployment optimization.
+
+Fixes
+- Fixed module parameter assignment when modifying block values.
+- Fixed an issue when building certain module blocks.
+- Fixed an issue with checking for updated patches.
+- Made all UI buttons consistent.
+
+Plans
+- More editing features and quality-of-life updates.
+
+_________________________________________
+
 Version 2.0 (January 2026)
+
 New Features
 - Patches can now be edited and created in the app!!!
   - This feature is offered in a beta state. Without having the unit on hand to measure dynamic CPU loads,
@@ -32,6 +71,8 @@ Plans
 - Ongoing OS support and bug fixes.
   - Support for Intel Macs will continue, but those versions won't have been tested on original hardware.
 
+_________________________________________
+
 Version 1.4 (December 2024)
 
 New Features
@@ -58,6 +99,8 @@ Fixes
 Plans
 - At this point, the app is nearly feature-complete, so future updates will be limited in scope to fix bugs and address minor things.
     - Patch editing/creation is a notable exception, however patience is recommended there.
+
+_________________________________________
 
 Version 1.3 (January 2024)
 
@@ -98,6 +141,8 @@ Future Plans
 - Optimize the Patch Expander with a new layout algorithm, variable views, and other useful features.
 - Continue development on patch editing and creation tools.
 - Support PUT requests for making updates to patches hosted on PS.
+
+_________________________________________
 
 Version 1.2 (March 2022)
 
@@ -141,6 +186,8 @@ Known Issues
 Future Plans
 - Further optimize the Patch Expander with variable views and other useful features.
 - Continue development on patch editing and creation tools.
+
+_________________________________________
 
 Version 1.1 (July 2021)
 

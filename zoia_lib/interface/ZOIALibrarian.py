@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ZOIALibrarian.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.6.0
+## Created by: Qt User Interface Compiler version 6.10.1
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -34,54 +34,54 @@ class Ui_MainWindow(object):
         MainWindow.setUnifiedTitleAndToolBarOnMac(True)
         self.actionSpecify_SD_Card_Location = QAction(MainWindow)
         self.actionSpecify_SD_Card_Location.setObjectName(u"actionSpecify_SD_Card_Location")
-        self.actionSpecify_SD_Card_Location.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSpecify_SD_Card_Location.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionQuit = QAction(MainWindow)
         self.actionQuit.setObjectName(u"actionQuit")
-        self.actionQuit.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionQuit.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_title_A_Z = QAction(MainWindow)
         self.actionSort_by_title_A_Z.setObjectName(u"actionSort_by_title_A_Z")
-        self.actionSort_by_title_A_Z.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_title_A_Z.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_title_Z_A = QAction(MainWindow)
         self.actionSort_by_title_Z_A.setObjectName(u"actionSort_by_title_Z_A")
-        self.actionSort_by_title_Z_A.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_title_Z_A.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_date_new_old = QAction(MainWindow)
         self.actionSort_by_date_new_old.setObjectName(u"actionSort_by_date_new_old")
         self.actionSort_by_date_new_old.setShortcutContext(Qt.WindowShortcut)
-        self.actionSort_by_date_new_old.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_date_new_old.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_date_old_new = QAction(MainWindow)
         self.actionSort_by_date_old_new.setObjectName(u"actionSort_by_date_old_new")
-        self.actionSort_by_date_old_new.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_date_old_new.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_likes_high_low = QAction(MainWindow)
         self.actionSort_by_likes_high_low.setObjectName(u"actionSort_by_likes_high_low")
-        self.actionSort_by_likes_high_low.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_likes_high_low.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_likes_low_high = QAction(MainWindow)
         self.actionSort_by_likes_low_high.setObjectName(u"actionSort_by_likes_low_high")
-        self.actionSort_by_likes_low_high.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_likes_low_high.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_views_high_low = QAction(MainWindow)
         self.actionSort_by_views_high_low.setObjectName(u"actionSort_by_views_high_low")
-        self.actionSort_by_views_high_low.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_views_high_low.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_views_low_high = QAction(MainWindow)
         self.actionSort_by_views_low_high.setObjectName(u"actionSort_by_views_low_high")
-        self.actionSort_by_views_low_high.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_views_low_high.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_downloads_high_low = QAction(MainWindow)
         self.actionSort_by_downloads_high_low.setObjectName(u"actionSort_by_downloads_high_low")
-        self.actionSort_by_downloads_high_low.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_downloads_high_low.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionSort_by_downloads_low_high = QAction(MainWindow)
         self.actionSort_by_downloads_low_high.setObjectName(u"actionSort_by_downloads_low_high")
-        self.actionSort_by_downloads_low_high.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionSort_by_downloads_low_high.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionZOIA_Librarian_Help = QAction(MainWindow)
         self.actionZOIA_Librarian_Help.setObjectName(u"actionZOIA_Librarian_Help")
         self.actionAlternating_Row_Colours = QAction(MainWindow)
         self.actionAlternating_Row_Colours.setObjectName(u"actionAlternating_Row_Colours")
-        self.actionAlternating_Row_Colours.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionAlternating_Row_Colours.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionImport_A_Patch = QAction(MainWindow)
         self.actionImport_A_Patch.setObjectName(u"actionImport_A_Patch")
-        self.actionImport_A_Patch.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionImport_A_Patch.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionToggle_Dark_Mode = QAction(MainWindow)
         self.actionToggle_Dark_Mode.setObjectName(u"actionToggle_Dark_Mode")
         self.actionImport_Multiple_Patches = QAction(MainWindow)
         self.actionImport_Multiple_Patches.setObjectName(u"actionImport_Multiple_Patches")
-        self.actionImport_Multiple_Patches.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionImport_Multiple_Patches.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionArial = QAction(MainWindow)
         self.actionArial.setObjectName(u"actionArial")
         font = QFont()
@@ -153,16 +153,16 @@ class Ui_MainWindow(object):
         self.actionWingdings.setFont(font11)
         self.actionIncrease_Font_Size = QAction(MainWindow)
         self.actionIncrease_Font_Size.setObjectName(u"actionIncrease_Font_Size")
-        self.actionIncrease_Font_Size.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionIncrease_Font_Size.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionDecrease_Font_Size = QAction(MainWindow)
         self.actionDecrease_Font_Size.setObjectName(u"actionDecrease_Font_Size")
-        self.actionDecrease_Font_Size.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionDecrease_Font_Size.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionFont = QAction(MainWindow)
         self.actionFont.setObjectName(u"actionFont")
-        self.actionFont.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionFont.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionImport_Version_History_directory = QAction(MainWindow)
         self.actionImport_Version_History_directory.setObjectName(u"actionImport_Version_History_directory")
-        self.actionImport_Version_History_directory.setProperty("shortcutVisibleInContextMenu", True)
+        self.actionImport_Version_History_directory.setProperty(u"shortcutVisibleInContextMenu", True)
         self.actionToggle_Dark_Mode_2 = QAction(MainWindow)
         self.actionToggle_Dark_Mode_2.setObjectName(u"actionToggle_Dark_Mode_2")
         self.actionReset_Sizes = QAction(MainWindow)
@@ -219,7 +219,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_2.setContentsMargins(0, -1, -1, -1)
         self.tabs = QTabWidget(self.centralwidget)
         self.tabs.setObjectName(u"tabs")
-        self.tabs.setCursor(QCursor(Qt.ArrowCursor))
+        self.tabs.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self.tabs.setMouseTracking(False)
         self.tabs.setStyleSheet(u"")
         self.tabs.setTabShape(QTabWidget.Rounded)
@@ -245,7 +245,7 @@ class Ui_MainWindow(object):
         self.verticalLayout_6.setContentsMargins(0, 0, 0, 0)
         self.widget_7 = QWidget(self.widget_6)
         self.widget_7.setObjectName(u"widget_7")
-        sizePolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.widget_7.sizePolicy().hasHeightForWidth())
@@ -274,7 +274,7 @@ class Ui_MainWindow(object):
 
         self.refresh_pch_btn = QPushButton(self.layoutWidget_4)
         self.refresh_pch_btn.setObjectName(u"refresh_pch_btn")
-        self.refresh_pch_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.refresh_pch_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.refresh_pch_btn.setMouseTracking(True)
         self.refresh_pch_btn.setStyleSheet(u"")
 
@@ -285,7 +285,7 @@ class Ui_MainWindow(object):
 
         self.btn_dwn_all = QPushButton(self.layoutWidget_4)
         self.btn_dwn_all.setObjectName(u"btn_dwn_all")
-        self.btn_dwn_all.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_dwn_all.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_dwn_all.setMouseTracking(True)
 
         self.verticalLayout_8.addWidget(self.btn_dwn_all)
@@ -306,7 +306,7 @@ class Ui_MainWindow(object):
         if (self.table_PS.rowCount() < 1):
             self.table_PS.setRowCount(1)
         self.table_PS.setObjectName(u"table_PS")
-        self.table_PS.viewport().setProperty("cursor", QCursor(Qt.ArrowCursor))
+        self.table_PS.viewport().setProperty(u"cursor", QCursor(Qt.CursorShape.ArrowCursor))
         self.table_PS.setMouseTracking(False)
         self.table_PS.setStyleSheet(u"")
         self.table_PS.setFrameShape(QFrame.StyledPanel)
@@ -366,7 +366,7 @@ class Ui_MainWindow(object):
         self.splitter_local.setHandleWidth(10)
         self.layoutWidget = QWidget(self.splitter_local)
         self.layoutWidget.setObjectName(u"layoutWidget")
-        sizePolicy1 = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         sizePolicy1.setHorizontalStretch(0)
         sizePolicy1.setVerticalStretch(0)
         sizePolicy1.setHeightForWidth(self.layoutWidget.sizePolicy().hasHeightForWidth())
@@ -379,7 +379,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_12.setObjectName(u"horizontalLayout_12")
         self.back_btn_local = QPushButton(self.layoutWidget)
         self.back_btn_local.setObjectName(u"back_btn_local")
-        self.back_btn_local.setCursor(QCursor(Qt.PointingHandCursor))
+        self.back_btn_local.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.back_btn_local.setMouseTracking(True)
         self.back_btn_local.setStyleSheet(u"")
 
@@ -387,7 +387,7 @@ class Ui_MainWindow(object):
 
         self.searchbar_local = QLineEdit(self.layoutWidget)
         self.searchbar_local.setObjectName(u"searchbar_local")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         sizePolicy2.setHorizontalStretch(0)
         sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.searchbar_local.sizePolicy().hasHeightForWidth())
@@ -399,7 +399,7 @@ class Ui_MainWindow(object):
 
         self.check_for_updates_btn = QPushButton(self.layoutWidget)
         self.check_for_updates_btn.setObjectName(u"check_for_updates_btn")
-        self.check_for_updates_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.check_for_updates_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.check_for_updates_btn.setMouseTracking(True)
         self.check_for_updates_btn.setStyleSheet(u"")
 
@@ -455,7 +455,7 @@ class Ui_MainWindow(object):
         self.splitter_local.addWidget(self.layoutWidget)
         self.layoutWidget_7 = QWidget(self.splitter_local)
         self.layoutWidget_7.setObjectName(u"layoutWidget_7")
-        sizePolicy3 = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
         sizePolicy3.setHeightForWidth(self.layoutWidget_7.sizePolicy().hasHeightForWidth())
@@ -465,9 +465,15 @@ class Ui_MainWindow(object):
         self.verticalLayout_22.setSizeConstraint(QLayout.SetMinimumSize)
         self.horizontalLayout_21 = QHBoxLayout()
         self.horizontalLayout_21.setObjectName(u"horizontalLayout_21")
+        self.split_version = QPushButton(self.layoutWidget_7)
+        self.split_version.setObjectName(u"split_version")
+        self.split_version.setMouseTracking(True)
+
+        self.horizontalLayout_21.addWidget(self.split_version)
+
         self.update_patch_notes = QPushButton(self.layoutWidget_7)
         self.update_patch_notes.setObjectName(u"update_patch_notes")
-        self.update_patch_notes.setCursor(QCursor(Qt.PointingHandCursor))
+        self.update_patch_notes.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.update_patch_notes.setMouseTracking(True)
         self.update_patch_notes.setStyleSheet(u"")
 
@@ -481,7 +487,7 @@ class Ui_MainWindow(object):
 
         self.upload_patch = QPushButton(self.layoutWidget_7)
         self.upload_patch.setObjectName(u"upload_patch")
-        self.upload_patch.setCursor(QCursor(Qt.PointingHandCursor))
+        self.upload_patch.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.upload_patch.setMouseTracking(True)
 
         self.horizontalLayout_21.addWidget(self.upload_patch)
@@ -521,7 +527,7 @@ class Ui_MainWindow(object):
         self.verticalLayout_24.setObjectName(u"verticalLayout_24")
         self.text_browser_viz = QTextBrowser(self.layoutWidget_8)
         self.text_browser_viz.setObjectName(u"text_browser_viz")
-        sizePolicy4 = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         sizePolicy4.setHorizontalStretch(0)
         sizePolicy4.setVerticalStretch(0)
         sizePolicy4.setHeightForWidth(self.text_browser_viz.sizePolicy().hasHeightForWidth())
@@ -533,28 +539,28 @@ class Ui_MainWindow(object):
         self.gridLayout.setObjectName(u"gridLayout")
         self.btn_next_page = QPushButton(self.layoutWidget_8)
         self.btn_next_page.setObjectName(u"btn_next_page")
-        self.btn_next_page.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_next_page.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_next_page.setMouseTracking(True)
 
         self.gridLayout.addWidget(self.btn_next_page, 0, 1, 1, 1)
 
         self.btn_prev_page = QPushButton(self.layoutWidget_8)
         self.btn_prev_page.setObjectName(u"btn_prev_page")
-        self.btn_prev_page.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_prev_page.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_prev_page.setMouseTracking(True)
 
         self.gridLayout.addWidget(self.btn_prev_page, 0, 0, 1, 1)
 
         self.btn_show_routing = QPushButton(self.layoutWidget_8)
         self.btn_show_routing.setObjectName(u"btn_show_routing")
-        self.btn_show_routing.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_show_routing.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_show_routing.setMouseTracking(True)
 
         self.gridLayout.addWidget(self.btn_show_routing, 1, 1, 1, 1)
 
         self.back_btn = QPushButton(self.layoutWidget_8)
         self.back_btn.setObjectName(u"back_btn")
-        self.back_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.back_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.back_btn.setMouseTracking(True)
 
         self.gridLayout.addWidget(self.back_btn, 1, 0, 1, 1)
@@ -938,7 +944,7 @@ class Ui_MainWindow(object):
         self.sd_tree.setMidLineWidth(10000)
         self.sd_tree.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         self.sd_tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.sd_tree.setProperty("showDropIndicator", False)
+        self.sd_tree.setProperty(u"showDropIndicator", False)
         self.sd_tree.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.sd_tree.setIndentation(20)
         self.sd_tree.setRootIsDecorated(True)
@@ -958,7 +964,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_17.setObjectName(u"horizontalLayout_17")
         self.delete_folder_sd_btn = QPushButton(self.layoutWidget_3)
         self.delete_folder_sd_btn.setObjectName(u"delete_folder_sd_btn")
-        self.delete_folder_sd_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.delete_folder_sd_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.delete_folder_sd_btn.setMouseTracking(True)
         self.delete_folder_sd_btn.setStyleSheet(u"")
 
@@ -966,14 +972,14 @@ class Ui_MainWindow(object):
 
         self.set_export_dir_btn = QPushButton(self.layoutWidget_3)
         self.set_export_dir_btn.setObjectName(u"set_export_dir_btn")
-        self.set_export_dir_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.set_export_dir_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.set_export_dir_btn.setMouseTracking(True)
 
         self.horizontalLayout_17.addWidget(self.set_export_dir_btn)
 
         self.import_all_btn = QPushButton(self.layoutWidget_3)
         self.import_all_btn.setObjectName(u"import_all_btn")
-        self.import_all_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.import_all_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.import_all_btn.setMouseTracking(True)
         self.import_all_btn.setStyleSheet(u"")
 
@@ -981,7 +987,7 @@ class Ui_MainWindow(object):
 
         self.import_all_ver_btn = QPushButton(self.layoutWidget_3)
         self.import_all_ver_btn.setObjectName(u"import_all_ver_btn")
-        self.import_all_ver_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.import_all_ver_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.import_all_ver_btn.setStyleSheet(u"")
 
         self.horizontalLayout_17.addWidget(self.import_all_ver_btn)
@@ -1203,7 +1209,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
         self.btn_save_bank = QPushButton(self.layoutWidget_6)
         self.btn_save_bank.setObjectName(u"btn_save_bank")
-        self.btn_save_bank.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_save_bank.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_save_bank.setMouseTracking(True)
         self.btn_save_bank.setStyleSheet(u"")
 
@@ -1211,7 +1217,7 @@ class Ui_MainWindow(object):
 
         self.btn_load_bank = QPushButton(self.layoutWidget_6)
         self.btn_load_bank.setObjectName(u"btn_load_bank")
-        self.btn_load_bank.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_load_bank.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_load_bank.setMouseTracking(True)
         self.btn_load_bank.setStyleSheet(u"")
 
@@ -1219,7 +1225,7 @@ class Ui_MainWindow(object):
 
         self.btn_export_bank = QPushButton(self.layoutWidget_6)
         self.btn_export_bank.setObjectName(u"btn_export_bank")
-        self.btn_export_bank.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_export_bank.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_export_bank.setMouseTracking(True)
         self.btn_export_bank.setStyleSheet(u"")
 
@@ -1227,7 +1233,7 @@ class Ui_MainWindow(object):
 
         self.btn_clear_bank = QPushButton(self.layoutWidget_6)
         self.btn_clear_bank.setObjectName(u"btn_clear_bank")
-        self.btn_clear_bank.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_clear_bank.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_clear_bank.setMouseTracking(True)
         self.btn_clear_bank.setStyleSheet(u"")
 
@@ -1433,7 +1439,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_11.setObjectName(u"horizontalLayout_11")
         self.back_btn_bank = QPushButton(self.layoutWidget_5)
         self.back_btn_bank.setObjectName(u"back_btn_bank")
-        self.back_btn_bank.setCursor(QCursor(Qt.PointingHandCursor))
+        self.back_btn_bank.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.back_btn_bank.setMouseTracking(True)
         self.back_btn_bank.setStyleSheet(u"")
 
@@ -1578,7 +1584,7 @@ class Ui_MainWindow(object):
     # setupUi
 
     def retranslateUi(self, MainWindow):
-        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"ZOIA Librarian - Version 2.0", None))
+        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"ZOIA Librarian - Version 2.1", None))
         self.actionSpecify_SD_Card_Location.setText(QCoreApplication.translate("MainWindow", u"Specify SD Card Location", None))
 #if QT_CONFIG(shortcut)
         self.actionSpecify_SD_Card_Location.setShortcut(QCoreApplication.translate("MainWindow", u"Ctrl+S", None))
@@ -1914,6 +1920,19 @@ class Ui_MainWindow(object):
 #if QT_CONFIG(accessibility)
         self.table_local.setAccessibleDescription(QCoreApplication.translate("MainWindow", u"Displays all of the patches that have been saved to the ZOIA Librarian", None))
 #endif // QT_CONFIG(accessibility)
+#if QT_CONFIG(tooltip)
+        self.split_version.setToolTip(QCoreApplication.translate("MainWindow", u"Click here to split the version history.", None))
+#endif // QT_CONFIG(tooltip)
+#if QT_CONFIG(statustip)
+        self.split_version.setStatusTip(QCoreApplication.translate("MainWindow", u"Click here to split the version history.", None))
+#endif // QT_CONFIG(statustip)
+#if QT_CONFIG(accessibility)
+        self.split_version.setAccessibleName(QCoreApplication.translate("MainWindow", u"Split Version Button", None))
+#endif // QT_CONFIG(accessibility)
+#if QT_CONFIG(accessibility)
+        self.split_version.setAccessibleDescription(QCoreApplication.translate("MainWindow", u"When clicked, brings up a context window to select which versions to split off into individual patches.", None))
+#endif // QT_CONFIG(accessibility)
+        self.split_version.setText(QCoreApplication.translate("MainWindow", u"Split Version", None))
 #if QT_CONFIG(tooltip)
         self.update_patch_notes.setToolTip(QCoreApplication.translate("MainWindow", u"Click here to update the patch notes for the currently selected patch.", None))
 #endif // QT_CONFIG(tooltip)

@@ -300,7 +300,9 @@ class PatchSave(Patch):
         with open(name_json, "w") as jf:
             json.dump(metadata, jf)
 
-    def import_to_backend(self, path, version=False):
+    def import_to_backend(
+        self, path, version=False, ps_metadata_id=None, disable_auto_ps_link=False
+    ):
         """Attempts to import a patch to the backend .ZoiaLibraryApp
         directory. This method is meant to work for patches that
         originate from a local user's machine, or from a ZOIA formatted
@@ -315,6 +317,10 @@ class PatchSave(Patch):
               being imported.
         version: True if the directory being imported should be treated
                  as a version directory.
+        ps_metadata_id: Optional. If set, this PatchStorage patch id
+                        will be used for metadata linking during import.
+        disable_auto_ps_link: Optional. If True, skip automatic
+                              PatchStorage metadata linking by title.
 
         raise: SavingError should the patch fail to save.
 
@@ -430,20 +436,34 @@ class PatchSave(Patch):
                 "license": {"name": ""},
             }
             if not version:
-                if os.path.exists(os.path.join(self.back_path, "data.json")):
-                    with open(os.path.join(self.back_path, "data.json"), "r") as f:
-                        data = json.loads(f.read())
-                    for pch in data:
-                        if js_data["title"].lower() in pch["title"].lower():
-                            temp = ps.get_patch_meta(pch["id"])
-                            js_data = temp
-                            # don't fully overwrite files info, just update filename and id
-                            js_data["files"][0]["id"] = pch["id"]
-                            js_data["files"][0]["filename"] = "{}.{}".format(patch_name, ext)
-                            js_data["updated_at"] = "{:%Y-%m-%dT%H:%M:%S+00:00}".format(
-                                datetime.datetime.now()
-                            )
-                            break
+                if ps_metadata_id is not None:
+                    try:
+                        temp = ps.get_patch_meta(ps_metadata_id)
+                    except Exception:
+                        temp = None
+                    if isinstance(temp, dict) and "files" in temp and len(temp["files"]) > 0:
+                        js_data = temp
+                        # Don't fully overwrite files info, just update filename and id.
+                        js_data["files"][0]["id"] = js_data["id"]
+                        js_data["files"][0]["filename"] = "{}.{}".format(patch_name, ext)
+                        js_data["updated_at"] = "{:%Y-%m-%dT%H:%M:%S+00:00}".format(
+                            datetime.datetime.now()
+                        )
+                elif not disable_auto_ps_link:
+                    if os.path.exists(os.path.join(self.back_path, "data.json")):
+                        with open(os.path.join(self.back_path, "data.json"), "r") as f:
+                            data = json.loads(f.read())
+                        for pch in data:
+                            if js_data["title"].lower() in pch["title"].lower():
+                                temp = ps.get_patch_meta(pch["id"])
+                                js_data = temp
+                                # don't fully overwrite files info, just update filename and id
+                                js_data["files"][0]["id"] = pch["id"]
+                                js_data["files"][0]["filename"] = "{}.{}".format(patch_name, ext)
+                                js_data["updated_at"] = "{:%Y-%m-%dT%H:%M:%S+00:00}".format(
+                                    datetime.datetime.now()
+                                )
+                                break
             if version:
                 js_data["updated_at"] = "{:%Y-%m-%dT%H:%M:%S+00:00}".format(
                     datetime.datetime.now()

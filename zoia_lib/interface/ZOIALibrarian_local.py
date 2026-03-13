@@ -9,7 +9,7 @@ import urllib3.exceptions
 from NodeGraphQt import NodeGraph, BaseNode, setup_context_menu
 
 from PySide6 import QtCore
-from PySide6.QtCore import QEvent, QThread
+from PySide6.QtCore import QEvent, QThread, Qt
 from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
@@ -18,8 +18,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QInputDialog,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSpinBox,
+    QDialogButtonBox,
     QVBoxLayout
 )
 
@@ -78,6 +81,7 @@ class ZOIALibrarianLocal(QMainWindow):
         self.local_selected = None
         self.curr_page_viz = 0
         self.curr_viz = None
+        self._active_title_edit = None
 
         # Thread
         self.worker_updates = UpdatesWorker()
@@ -88,6 +92,7 @@ class ZOIALibrarianLocal(QMainWindow):
         self.ui.btn_show_routing.setEnabled(False)
         self.ui.btn_next_page.setEnabled(False)
         self.ui.btn_prev_page.setEnabled(False)
+        self.ui.split_version.setEnabled(False)
         self.viz_disable()
 
     def metadata_init(self):
@@ -104,6 +109,7 @@ class ZOIALibrarianLocal(QMainWindow):
                 and patch != "Folders"
                 and patch != "temp"
                 and patch != "Samples"
+                and patch != "Editor"
             ):
                 # Need to update all versions
                 for version in glob.glob(os.path.join(self.path, patch, "*json")):
@@ -128,6 +134,7 @@ class ZOIALibrarianLocal(QMainWindow):
                 and patch != "art_cache"
                 and patch != "Banks"
                 and patch != "Folders"
+                and patch != "Editor"
                 and patch != "temp"
                 and patch != "Samples"
                 and len(patch) == 6
@@ -250,6 +257,7 @@ class ZOIALibrarianLocal(QMainWindow):
                 and patches != "temp.zip"
                 and patches != "patch.html"
                 and patches != "Samples"
+                and patches != "Editor"
             ):
                 for pch in os.listdir(os.path.join(self.path, patches)):
                     # Read the metadata so that we can set up the tables.
@@ -586,6 +594,19 @@ class ZOIALibrarianLocal(QMainWindow):
                an array with the names of every patch that was updated.
         """
 
+        # Defensive guard for malformed worker payloads.
+        if not isinstance(count, (list, tuple)) or len(count) < 2:
+            self.ui.statusbar.showMessage("Update check failed.", timeout=5000)
+            self.msg.setWindowTitle("Update Failed")
+            self.msg.setIcon(QMessageBox.Warning)
+            self.msg.setText("Could not complete patch update checks.")
+            self.msg.setStandardButtons(QMessageBox.Ok)
+            self.msg.exec_()
+            self.ui.check_for_updates_btn.setEnabled(True)
+            self.ui.refresh_pch_btn.setEnabled(True)
+            self.ui.btn_dwn_all.setEnabled(True)
+            return
+
         # Check to see if we actually got an updates and let the user know.
         if count[0] == 0:
             self.ui.statusbar.showMessage("No updates needed.", timeout=5000)
@@ -604,10 +625,11 @@ class ZOIALibrarianLocal(QMainWindow):
                 self.msg.setText("Successfully updated 1 patch:")
                 self.msg.setDetailedText("\t* {}".format(count[1][0]))
             else:
-                self.msg.setText("Successfully updated {} patches:".format(count))
+                self.msg.setText("Successfully updated {} patches:".format(count[0]))
                 text = ""
                 for i in range(count[0]):
                     text += "\t* {}\n".format(count[1][i])
+                self.msg.setDetailedText(text)
             self.msg.setStandardButtons(QMessageBox.Ok)
             self.msg.exec_()
 
@@ -640,6 +662,7 @@ class ZOIALibrarianLocal(QMainWindow):
             self.ui.edit_patch.setEnabled(False)
             self.ui.btn_prev_page.setEnabled(False)
             self.ui.btn_next_page.setEnabled(False)
+            self.ui.split_version.setEnabled(False)
             self.viz_disable()
 
         # Sort and display the data.
@@ -685,6 +708,134 @@ class ZOIALibrarianLocal(QMainWindow):
         else:
             self.get_version_patches(True)
         self.ui.statusbar.showMessage("Successfully updated patch notes.", timeout=5000)
+
+    def split_version_history(self):
+        """Splits a version history into individual local patches."""
+
+        if not self.ui.back_btn_local.isEnabled() or self.curr_ver is None:
+            return
+
+        versions = self._select_versions_to_split(self.curr_ver)
+        if not versions:
+            return
+
+        self.msg.setWindowTitle("Split Version History")
+        self.msg.setIcon(QMessageBox.Warning)
+        if len(versions) == self._count_version_files(self.curr_ver):
+            self.msg.setText(
+                "This will split the version history into individual local patches "
+                "and keep one version linked to the original PatchStorage ID. Continue?"
+            )
+        else:
+            self.msg.setText(
+                "This will split the selected versions into individual local patches "
+                "and remove them from the version history. Continue?"
+            )
+        self.msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        if self.msg.exec_() != QMessageBox.Yes:
+            return
+
+        try:
+            update.split_version_history(self.curr_ver, versions)
+        except Exception as e:
+            self.msg.setWindowTitle("Split Failed")
+            self.msg.setIcon(QMessageBox.Information)
+            self.msg.setText("Could not split the version history.")
+            self.msg.setDetailedText(str(e))
+            self.msg.setStandardButtons(QMessageBox.Ok)
+            self.msg.exec_()
+            self.msg.setDetailedText(None)
+            return
+
+        remaining_versions = self._count_version_files(self.curr_ver)
+        if remaining_versions <= 1:
+            self.go_back()
+            self.get_local_patches()
+            self.ui.searchbar_local.setText("")
+        else:
+            self.get_version_patches(True, self.curr_ver)
+        self.ui.statusbar.showMessage("Successfully split version history.", timeout=5000)
+
+    def _count_version_files(self, patch_id):
+        patch_dir = os.path.join(self.path, patch_id)
+        if not os.path.isdir(patch_dir):
+            return 0
+        return len([f for f in os.listdir(patch_dir) if f.endswith(".json")])
+
+    def _select_versions_to_split(self, patch_id):
+        patch_dir = os.path.join(self.path, patch_id)
+        if not os.path.isdir(patch_dir):
+            return []
+
+        def _title_from_filename(filename):
+            base, _ext = os.path.splitext(filename)
+            if "_" in base and len(base.split("_")[0]) == 3:
+                try:
+                    float(base.split("_")[0])
+                    base = base[4:]
+                except ValueError:
+                    pass
+            if base.startswith("zoia_"):
+                base = base[5:]
+            return base.replace("_", " ").strip()
+
+        versions = []
+        for json_name in sorted(os.listdir(patch_dir)):
+            if not json_name.endswith(".json"):
+                continue
+            with open(os.path.join(patch_dir, json_name), "r") as f:
+                meta = json.loads(f.read())
+            stem = json_name[:-5]
+            filename = ""
+            if "files" in meta and meta["files"]:
+                if isinstance(meta["files"][0], dict):
+                    filename = meta["files"][0].get("filename", "")
+            title = _title_from_filename(filename) if filename else meta.get("title", stem)
+            ver_num = 1
+            if "_v" in stem:
+                suffix = stem.split("_v")[-1]
+                if suffix.isdigit():
+                    ver_num = int(suffix)
+            versions.append(
+                {
+                    "stem": stem,
+                    "label": title,
+                    "ver": ver_num,
+                }
+            )
+
+        if not versions:
+            return []
+
+        versions.sort(key=lambda item: item["ver"], reverse=True)
+
+        dialog = QDialog(self.window)
+        dialog.setWindowTitle("Select Versions to Split")
+        layout = QVBoxLayout()
+        list_widget = QListWidget(dialog)
+        for item in versions:
+            list_item = QListWidgetItem(item["label"])
+            list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
+            list_item.setCheckState(Qt.Unchecked)
+            list_item.setData(Qt.UserRole, item["stem"])
+            list_widget.addItem(list_item)
+
+        layout.addWidget(list_widget)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.setLayout(layout)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return []
+
+        selected = []
+        for i in range(list_widget.count()):
+            list_item = list_widget.item(i)
+            if list_item.checkState() == Qt.Checked:
+                selected.append(list_item.data(Qt.UserRole))
+        return selected
 
     def update_tags_cats(self, text, mode, idx):
         """Updates the tags or categories for a locally downloaded
@@ -759,6 +910,18 @@ class ZOIALibrarianLocal(QMainWindow):
         file = os.path.join(self.path, self.local_selected, self.local_selected)
         with open(file + ".json", "r") as f:
             data = json.loads(f.read())
+        author = data['author']['name']
+
+        if usr != author:
+            self.ui.statusbar.showMessage(
+                "Invalid User.", timeout=5000
+            )
+            self.msg.setWindowTitle("Upload Failed")
+            self.msg.setIcon(QMessageBox.Warning)
+            self.msg.setText("You can only modify patches you created.")
+            self.msg.setStandardButtons(QMessageBox.Ok)
+            self.msg.exec_()
+            return
 
         # Now start the upload process
         # First we need artwork
@@ -1126,6 +1289,122 @@ class ZOIALibrarianLocal(QMainWindow):
             except IndexError:
                 return
 
+    def eventFilter(self, o, e):
+        if e.type() == QEvent.MouseButtonDblClick and o.objectName().isdigit():
+            row = o.property("row")
+            if row is not None:
+                self.handle_title_double_click(int(row), 0)
+                return True
+        return False
+
+    def handle_title_double_click(self, row, column):
+        if self._active_title_edit is not None:
+            return
+        if column != 0 or row < 0:
+            return
+        if self.ui.back_btn_local.isEnabled():
+            return
+        title_btn = self.ui.table_local.cellWidget(row, 0)
+        if title_btn is None:
+            return
+        idx = title_btn.objectName()
+        current_title = self._get_patch_title(idx)
+        if not current_title:
+            current_title = title_btn.text().replace("\n", " ").replace(
+                "[Multiple Versions]", ""
+            ).strip()
+        editor = QLineEdit(current_title, self.ui.table_local)
+        editor.setFont(title_btn.font())
+        editor.setAlignment(Qt.AlignCenter)
+        editor.setFrame(False)
+        editor.editingFinished.connect(
+            lambda row=row, idx=idx, btn=title_btn, prev=current_title: self._finish_title_inline_edit(
+                row, idx, btn, prev
+            )
+        )
+        self._active_title_edit = editor
+        self.ui.table_local.setCellWidget(row, 0, editor)
+        editor.setFocus()
+        editor.selectAll()
+        return
+
+    def _finish_title_inline_edit(self, row, idx, title_btn, previous_title):
+        editor = self._active_title_edit
+        self._active_title_edit = None
+        if editor is None:
+            return
+        new_title = editor.text().strip()
+        if not new_title or new_title == previous_title:
+            self.ui.table_local.setCellWidget(row, 0, title_btn)
+            editor.deleteLater()
+            return
+        self.update_patch_title(idx, new_title)
+        if not self.ui.back_btn_local.isEnabled():
+            self.get_local_patches()
+        else:
+            self.get_version_patches(True)
+        editor.deleteLater()
+        self.ui.statusbar.showMessage(
+            "Successfully updated patch title.", timeout=5000
+        )
+
+    def _get_patch_title(self, idx):
+        base = idx.split("_")[0]
+        patch_dir = os.path.join(self.path, base)
+        if not os.path.isdir(patch_dir):
+            return ""
+        for filename in sorted(os.listdir(patch_dir)):
+            if filename.endswith(".json"):
+                with open(os.path.join(patch_dir, filename), "r") as f:
+                    meta = json.loads(f.read())
+                return meta.get("title", "")
+        return ""
+
+    def update_patch_title(self, idx, title):
+        base = idx.split("_")[0]
+        patch_dir = os.path.join(self.path, base)
+        updated = False
+
+        def _sanitize_title(value):
+            for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                value = value.replace(ch, "")
+            return value.strip()
+
+        def _build_filename(existing_filename, new_title):
+            base_name, ext = os.path.splitext(existing_filename)
+            if not ext:
+                ext = ".bin"
+            prefix = ""
+            rest = base_name
+            if len(rest) >= 4 and rest[:3].isdigit() and rest[3] == "_":
+                prefix = rest[:4]
+                rest = rest[4:]
+            if rest.startswith("zoia_"):
+                prefix += "zoia_"
+                rest = rest[5:]
+            safe = _sanitize_title(new_title).replace(" ", "_")
+            return "{}{}{}".format(prefix, safe, ext)
+
+        def _update_meta_file(path):
+            with open(path, "r") as f:
+                meta = json.loads(f.read())
+            meta["title"] = title
+            if "files" in meta and meta["files"]:
+                if isinstance(meta["files"][0], dict):
+                    filename = meta["files"][0].get("filename", "")
+                    if filename:
+                        meta["files"][0]["filename"] = _build_filename(filename, title)
+            with open(path, "w") as f:
+                json.dump(meta, f)
+
+        if os.path.isdir(patch_dir):
+            for filename in sorted(os.listdir(patch_dir)):
+                if filename.endswith(".json"):
+                    _update_meta_file(os.path.join(patch_dir, filename))
+                    updated = True
+        if not updated:
+            _update_meta_file(os.path.join(self.path, base, "{}.json".format(idx)))
+
     def setup_viz(self, viz):
         """Prepares the patch visualizer once a patch has been
         selected.
@@ -1198,7 +1477,7 @@ class ZOIALibrarianLocal(QMainWindow):
         # widget used for the node graph.
         graph_widget = graph.widget
         graph_widget.setWindowTitle("Patch Expander - {}".format(pch["name"]))
-        # graph_widget.resize(1100, 800)
+        graph_widget.resize(1100, 800)
         graph_widget.show()
 
         # registered nodes.
@@ -1679,7 +1958,7 @@ class UpdatesWorker(QThread):
     """
 
     # UI communication
-    signal = QtCore.Signal(list)
+    signal = QtCore.Signal(object)
 
     def __init__(self):
         """Initializes the thread."""
@@ -1692,5 +1971,8 @@ class UpdatesWorker(QThread):
         Currently triggered via a button press.
         """
 
-        count = update.check_for_updates()
+        try:
+            count = update.check_for_updates()
+        except Exception:
+            count = []
         self.signal.emit(count)

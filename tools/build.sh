@@ -1,12 +1,18 @@
-ARCHITECTURE="${1:-$(uname -m)}"
+VERSION="${1}"
+ARCHITECTURE="${2:-$(uname -m)}"
+
+if [ -z "$VERSION" ]; then
+    echo "Usage: $0 <version> [architecture]"
+    exit 1
+fi
+
 if [ "$ARCHITECTURE" = "x86_64" ]; then
-    python3 -m venv venv_x86
     source venv_x86/bin/activate
 else
-    python3 -m venv venv
     source venv/bin/activate
 fi
 
+python tools/update_version.py "$VERSION"
 python tools/make_distro.py
 cd distro
 

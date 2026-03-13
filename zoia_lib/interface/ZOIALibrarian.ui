@@ -14,7 +14,7 @@
    <enum>Qt::StrongFocus</enum>
   </property>
   <property name="windowTitle">
-   <string>ZOIA Librarian - Version 2.0</string>
+   <string>ZOIA Librarian - Version 2.1</string>
   </property>
   <property name="styleSheet">
    <string notr="true"/>
@@ -675,7 +675,29 @@
                   <enum>QLayout::SetMinimumSize</enum>
                  </property>
                  <item>
-                  <layout class="QHBoxLayout" name="horizontalLayout_21" stretch="0,0,0">
+                  <layout class="QHBoxLayout" name="horizontalLayout_21" stretch="0,0,0,0">
+                   <item>
+                    <widget class="QPushButton" name="split_version">
+                     <property name="mouseTracking">
+                      <bool>true</bool>
+                     </property>
+                     <property name="toolTip">
+                      <string>Click here to split the version history.</string>
+                     </property>
+                     <property name="statusTip">
+                      <string>Click here to split the version history.</string>
+                     </property>
+                     <property name="accessibleName">
+                      <string>Split Version Button</string>
+                     </property>
+                     <property name="accessibleDescription">
+                      <string>When clicked, brings up a context window to select which versions to split off into individual patches.</string>
+                     </property>
+                     <property name="text">
+                      <string>Split Version</string>
+                     </property>
+                    </widget>
+                   </item>
                    <item>
                     <widget class="QPushButton" name="update_patch_notes">
                      <property name="cursor">
