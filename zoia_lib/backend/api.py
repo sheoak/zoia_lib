@@ -1,13 +1,20 @@
 import json
 import math
-import os
 import re
 
 import certifi
 import urllib3
 from furl import furl
 
-http = urllib3.PoolManager(cert_reqs="CERT_REQUIRED", ca_certs=certifi.where())
+# Fail fast instead of blocking the UI indefinitely when PatchStorage
+# is slow or unreachable; transient 5xx responses are retried with a
+# short backoff.
+http = urllib3.PoolManager(
+    cert_reqs="CERT_REQUIRED",
+    ca_certs=certifi.where(),
+    timeout=urllib3.Timeout(connect=5.0, read=30.0),
+    retries=urllib3.Retry(total=2, backoff_factor=0.5, status_forcelist=(502, 503, 504)),
+)
 
 
 class PatchStorage:
@@ -27,13 +34,31 @@ class PatchStorage:
         self.platform = 3003  # 3003 ZOIA 8271 H90
         self.api_token = None
         self.api_usr = None
-        self.licenses = self._get_license_data()
-        self.categories = self._get_categories_data()
+        # None signals that PatchStorage could not be reached; callers
+        # use refresh_patch_count() to retry once connectivity returns.
+        self.patch_count = None
         try:
             self.patch_count = self._patch_count()
         except Exception:
             # No internet connection.
             pass
+        self.licenses = self._get_license_data()
+        self.categories = self._get_categories_data()
+
+    def refresh_patch_count(self):
+        """Returns the number of ZOIA patches on PatchStorage,
+        querying the API again if the count could not be retrieved
+        previously (e.g., the application started while offline).
+
+        raise: urllib3.exceptions.HTTPError if PatchStorage cannot
+               be reached.
+
+        return: The patch count as an int.
+        """
+
+        if self.patch_count is None:
+            self.patch_count = self._patch_count()
+        return self.patch_count
 
     def _search(self, more_params=None):
         """Make a query to the PS API.
@@ -74,7 +99,7 @@ class PatchStorage:
 
         if more_params is None:
             more_params = {}
-        endpoint = os.path.join(self.url, "patches/")
+        endpoint = self.url + "patches/"
 
         # get param dict
         default_params = {
@@ -102,7 +127,7 @@ class PatchStorage:
         return: The metadata for the patch, in a MetadataSchema
                  compliant form.
         """
-        endpoint = os.path.join(self.url, "patches/{}/".format(idx))
+        endpoint = self.url + "patches/{}/".format(idx)
 
         # Make the request
         raw_data = json.loads(http.request("GET", endpoint).data)
@@ -124,23 +149,28 @@ class PatchStorage:
 
         try:
             body = self.get_patch_meta(idx)
-            f = http.request("GET", str(body["files"][0]["url"])).data, body
-            return f
+            r = http.request("GET", str(body["files"][0]["url"]))
+            if r.status != 200:
+                return None
+            return r.data, body
         except KeyError:
             # No patch with the supplied id was found.
             return None
 
     def _get_license_data(self):
-        """Get list of licenses."""
-        # r = http.request(
-        #     "GET",
-        #     self.url + 'licenses?per_page=100',
-        #     headers={
-        #         'Content-Type': 'application/json'
-        #     }
-        # )
-        # if r.status == 200:
-        #     return json.loads(r.data)
+        """Get list of licenses, preferring the live PS API and
+        falling back to a bundled snapshot when offline."""
+
+        # Skip the request entirely when we already know we're offline.
+        if self.patch_count is not None:
+            try:
+                r = http.request("GET", self.url + "licenses/?per_page=100")
+                if r.status == 200:
+                    data = json.loads(r.data)
+                    if data:
+                        return data
+            except Exception:
+                pass
 
         return [
             {
@@ -320,16 +350,19 @@ class PatchStorage:
         ]
 
     def _get_categories_data(self):
-        """Get list of categories."""
-        # r = http.request(
-        #     "GET",
-        #     self.url + 'categories',
-        #     headers={
-        #         'Content-Type': 'application/json'
-        #     }
-        # )
-        # if r.status == 200:
-        #     return json.loads(r.data)
+        """Get list of categories, preferring the live PS API and
+        falling back to a bundled snapshot when offline."""
+
+        # Skip the request entirely when we already know we're offline.
+        if self.patch_count is not None:
+            try:
+                r = http.request("GET", self.url + "categories/?per_page=100")
+                if r.status == 200:
+                    data = json.loads(r.data)
+                    if data:
+                        return data
+            except Exception:
+                pass
 
         return [
             {
@@ -395,7 +428,11 @@ class PatchStorage:
         ]
 
     def generate_token(self, username: str, password: str):
-        """Authentication process for PS API upload access."""
+        """Authentication process for PS API upload access.
+
+        return: True if a token was successfully generated,
+                False otherwise.
+        """
         r = http.request(
             "POST",
             self.url + 'auth/token',
@@ -405,10 +442,13 @@ class PatchStorage:
         if r.status == 200:
             self.api_token = json.loads(r.data)['token']
             self.api_usr = username
+            return True
+        return False
 
     def auth_token(self):
         """Checks if current token is still valid."""
-        assert self.api_token is not None
+        if self.api_token is None:
+            raise ValueError('Not authenticated')
 
         r = http.request(
             "POST",
@@ -426,7 +466,8 @@ class PatchStorage:
         Used as a reference input for the patch upload."""
 
         if file_type == 0:
-            assert path.endswith(tuple([".jpg", ".jpeg", ".gif", ".png", ".bmp"]))
+            if not path.endswith((".jpg", ".jpeg", ".gif", ".png", ".bmp")):
+                raise ValueError("Unsupported artwork format: {}".format(path))
         elif file_type == 1:
             # Need a ZOIA-readable filename
             with open(path + '.json', 'rb') as f:
@@ -434,7 +475,7 @@ class PatchStorage:
             name = meta['files'][0]['filename']
             path = path + ".bin"
         else:
-            raise ValueError
+            raise ValueError("Unknown file_type: {}".format(file_type))
 
         with open(path, 'rb') as f:
             data = f.read()
@@ -453,9 +494,6 @@ class PatchStorage:
         )
 
         return r
-        # if r.status == 201:
-        #     idx = json.loads(r.data)['id']
-        #     return idx
 
     def upload_patch(self, path: str, artwork_file_id: int, patch_file_id: int, lic_id: int):
 
@@ -493,10 +531,6 @@ class PatchStorage:
         )
 
         return r
-        # if r.status == 201:
-        #     return json.loads(r.data)['id']
-        # else:
-        #     return vars(r)
 
     def update_patch(self, idx: str, path: str, artwork_id=None, patch_id=None, license_id=None):
 
@@ -511,9 +545,8 @@ class PatchStorage:
             if "id" not in cat.keys():
                 cat['id'] = [x['id'] for x in self.categories if x['name'] == cat['name']][0]
 
-        # Revision nonsense
-        ver = max(re.findall(r'\d+', meta['revision']))
-        new_ver = str(float(ver) + 1)
+        # Bump the major version for the updated upload.
+        new_ver = self._next_revision(meta['revision'])
 
         # Get list of id's to update with
         art_id = artwork_id if 'id' not in meta['artwork'] else meta['artwork']['id']
@@ -543,10 +576,22 @@ class PatchStorage:
         )
 
         return r
-        # if r.status == 201:
-        #     return json.loads(r.data)['id']
-        # else:
-        #     return vars(r)
+
+    @staticmethod
+    def _next_revision(revision):
+        """Computes the next revision string by incrementing the major
+        version number, e.g. "1.3" -> "2.0". Defaults to "1.0" when the
+        current revision contains no number.
+
+        revision: The current revision string of the patch.
+
+        return: The bumped revision string.
+        """
+
+        nums = re.findall(r"\d+", revision or "")
+        if not nums:
+            return "1.0"
+        return "{}.0".format(int(nums[0]) + 1)
 
     def get_all_patch_data_init(self):
         """Retrieves the initial amount of information needed for
@@ -561,7 +606,7 @@ class PatchStorage:
 
         all_patches = []
 
-        for page in range(1, math.ceil(self.patch_count / per_page) + 1):
+        for page in range(1, math.ceil(self.refresh_patch_count() / per_page) + 1):
             # Get all the patches on the current page.
             all_patches.extend(self._search({**search, **{"page": page}}))
 
@@ -604,7 +649,8 @@ class PatchStorage:
         """
 
         # Max on per_page is 100, so we can't go over that.
-        per_page = self.patch_count - pch_num
+        patch_count = self.refresh_patch_count()
+        per_page = patch_count - pch_num
         if per_page > 100:
             per_page = 100
         search = {"per_page": per_page}
@@ -613,7 +659,7 @@ class PatchStorage:
         pages = 2
         # Find out how many pages of patches there are.
         if per_page == 100:
-            pages = math.ceil((self.patch_count - pch_num) / 100) + 1
+            pages = math.ceil((patch_count - pch_num) / 100) + 1
 
         # Query for each page of patches we need to retrieve.
         if pages == 2:
@@ -624,7 +670,7 @@ class PatchStorage:
             return new_patches
 
     def _patch_count(self):
-        endpoint = os.path.join(self.url, "patches/")
+        endpoint = self.url + "patches/"
 
         # get param dict
         params = {
@@ -641,54 +687,3 @@ class PatchStorage:
 
         # int(r.headers['X-WP-TotalPages'])
         return int(r.headers['X-WP-Total'])
-
-    # @staticmethod
-    # def _determine_patch_count():
-    #     """
-    #     Deprecated, see _patch_count function above for new method.
-    #
-    #     Determines the number of ZOIA patches that
-    #     are currently being stored on PS.
-    #     Does not count questions as patches.
-    #
-    #     return: An integer representing the total of ZOIA patches.
-    #     """
-    #
-    #     # Hi PS, yes we are a normal Firefox browser and not a program.
-    #     soup_patch = BeautifulSoup(
-    #         http.request(
-    #             "GET",
-    #             "https://patchstorage.com/",
-    #             headers={"User-Agent": "Mozilla/5.0"}
-    #         ).data,
-    #         features="html.parser",
-    #     )
-    #     found_pedals = soup_patch.find_all(
-    #         class_="d-flex flex-column " "justify-content-center"
-    #     )
-    #
-    #     """ Convert the ResultSet to a string so we can split on what we are
-    #     looking for. The PS website does not have unique div names, so this
-    #     is to workaround that.
-    #     """
-    #     zoia = (
-    #         unicode.join(u"\n", map(unicode, found_pedals))
-    #         .split("ZOIA", 1)[1]
-    #         .split("<strong>", 1)[1]
-    #     )
-    #
-    #     # For some reason, questions posted on PS count as "patches",
-    #     # so we need to figure out the # of questions.
-    #     soup_ques = BeautifulSoup(
-    #         http.request(
-    #             "GET",
-    #             "https://patchstorage.com/platform/zoia/?search_query=&ptype"
-    #             "%5B%5D=question&tax_platform=zoia&tax_post_tag=&orderby"
-    #             "=modified&wpas_id=search_form&wpas_submit=1",
-    #             headers={"User-Agent": "Mozilla/5.0"},
-    #         ).data,
-    #         features="html.parser",
-    #     )
-    #
-    #     # Return the total minus the number of questions found.
-    #     return int(zoia.split("<")[0]) - len(soup_ques.find_all(class_="card"))
