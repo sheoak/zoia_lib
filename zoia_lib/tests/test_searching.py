@@ -227,3 +227,24 @@ class TestSearching(unittest.TestCase):
             result[0]["id"] == 124566,
             "Expected to find the patch updated on 2020-04-30.",
         )
+
+    def test_category_prioritization(self):
+        """A query that prefixes a category name should rank patches
+        in that category first, in stable data order, without
+        duplicating patches that also match on other attributes.
+        """
+
+        sample = [
+            {"title": "Ambient Verb", "categories": [{"name": "Effect"}]},
+            {"title": "Synthy Delay", "categories": [{"name": "Effect"}]},
+            {"title": "Moog Bass", "categories": [{"name": "Synthesizer"}]},
+            {"title": "Juno Pad", "categories": [{"name": "Synthesizer"}]},
+        ]
+
+        result = util.search_patches(sample, "synth")
+        self.assertEqual(
+            [x["title"] for x in result],
+            ["Moog Bass", "Juno Pad", "Synthy Delay"],
+            "Expected Synthesizer category patches first, then the "
+            "title match, with no duplicates.",
+        )
