@@ -125,7 +125,7 @@ class TestAPI(unittest.TestCase):
             "Returned tuple did not contain binary data in the " "first element.",
         )
         try:
-            jf = json.dumps(f[1])
+            json.dumps(f[1])
         except ValueError:
             self.fail(
                 "Returned tuple did not contain valid json data in the second "

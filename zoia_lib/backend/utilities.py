@@ -42,9 +42,9 @@ def sort_metadata(mode, data, rev):
          false otherwise.
     """
 
-    """ The use of .upper() is to prevent sorting of lower case names 
-    before their uppercase counterparts, especially when they share the 
-    same initial letter. In a list, you would want all the "d" titles 
+    """ The use of .upper() is to prevent sorting of lower case names
+    before their uppercase counterparts, especially when they share the
+    same initial letter. In a list, you would want all the "d" titles
     grouped together.
     """
     # Input checking.
