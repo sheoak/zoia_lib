@@ -156,17 +156,18 @@ class TestAPI(unittest.TestCase):
             self.assertIn(key, f[1], f"Returned data missing '{key}'.")
 
     def test_next_revision(self):
-        """The revision bump should increment the major version
-        numerically, not lexicographically.
+        """The revision bump should apply a modest numeric increment,
+        not a lexicographic jump.
         """
 
-        self.assertEqual(api.PatchStorage._next_revision("1.0"), "2.0")
-        self.assertEqual(api.PatchStorage._next_revision("1.10"), "2.0")
-        self.assertEqual(api.PatchStorage._next_revision("3"), "4.0")
-        self.assertEqual(api.PatchStorage._next_revision("v2.1"), "3.0")
-        self.assertEqual(api.PatchStorage._next_revision(""), "1.0")
-        self.assertEqual(api.PatchStorage._next_revision(None), "1.0")
-        self.assertEqual(api.PatchStorage._next_revision("beta"), "1.0")
+        self.assertEqual(api.PatchStorage._next_revision("2.3"), "2.31")
+        self.assertEqual(api.PatchStorage._next_revision("1.0"), "1.01")
+        self.assertEqual(api.PatchStorage._next_revision("1.10"), "1.11")
+        self.assertEqual(api.PatchStorage._next_revision("3"), "3.01")
+        self.assertEqual(api.PatchStorage._next_revision("v2.1"), "2.11")
+        self.assertEqual(api.PatchStorage._next_revision(""), "1.01")
+        self.assertEqual(api.PatchStorage._next_revision(None), "1.01")
+        self.assertEqual(api.PatchStorage._next_revision("beta"), "1.01")
 
     def test_offline_start_falls_back_to_bundled_data(self):
         """When PatchStorage cannot be reached at startup, the patch

@@ -545,7 +545,7 @@ class PatchStorage:
             if "id" not in cat.keys():
                 cat['id'] = [x['id'] for x in self.categories if x['name'] == cat['name']][0]
 
-        # Bump the major version for the updated upload.
+        # Bump the revision for the updated upload.
         new_ver = self._next_revision(meta['revision'])
 
         # Get list of id's to update with
@@ -579,8 +579,8 @@ class PatchStorage:
 
     @staticmethod
     def _next_revision(revision):
-        """Computes the next revision string by incrementing the major
-        version number, e.g. "1.3" -> "2.0". Defaults to "1.0" when the
+        """Computes the next revision string with a modest minor
+        increment, e.g. "2.3" -> "2.31". Defaults to "1.01" when the
         current revision contains no number.
 
         revision: The current revision string of the patch.
@@ -588,10 +588,9 @@ class PatchStorage:
         return: The bumped revision string.
         """
 
-        nums = re.findall(r"\d+", revision or "")
-        if not nums:
-            return "1.0"
-        return "{}.0".format(int(nums[0]) + 1)
+        match = re.search(r"\d+(?:\.\d+)?", revision or "")
+        ver = float(match.group()) if match else 1.0
+        return "{:.2f}".format(ver + 0.01)
 
     def get_all_patch_data_init(self):
         """Retrieves the initial amount of information needed for
