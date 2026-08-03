@@ -237,6 +237,13 @@ class PatchBinary(Patch):
             starred.append(curr_param)
             curr_step += 1
 
+        # A patch saved before the per-module colour section existed stops right
+        # here: its declared size accounts for the starred params and nothing
+        # more. The words read below are then padding, and writing them back as
+        # a colour section sets every module to colour 0 - the pedal prefers this
+        # section over the header colours, so the patch loads uncoloured.
+        colors_present = (pch_size - (curr_step + 1)) == len(modules)
+
         colors = []
         # Extract the colors of each module in the patch.
         for m in range(len(modules)):
@@ -269,6 +276,7 @@ class PatchBinary(Patch):
             "pages_count": pages_count,
             "starred": starred,
             "colors": colors,
+            "colors_present": colors_present,
             "meta": {
                 "name": name,
                 "cpu": round(sum([k["cpu"] for k in modules]), 2),
