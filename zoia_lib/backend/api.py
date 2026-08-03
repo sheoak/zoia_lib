@@ -42,8 +42,44 @@ class PatchStorage:
         except Exception:
             # No internet connection.
             pass
-        self.licenses = self._get_license_data()
-        self.categories = self._get_categories_data()
+        # Resolved on first use so startup makes one request, not three.
+        self._licenses = None
+        self._categories = None
+
+    @property
+    def licenses(self):
+        """The list of licenses, fetched once on first use."""
+
+        if self._licenses is None:
+            self._licenses = self._get_license_data()
+        return self._licenses
+
+    @property
+    def categories(self):
+        """The list of categories, fetched once on first use."""
+
+        if self._categories is None:
+            self._categories = self._get_categories_data()
+        return self._categories
+
+    @staticmethod
+    def _is_valid_taxonomy(data):
+        """Checks that a live licenses/categories payload carries the
+        id/name pairs the rest of the application indexes by. Without
+        this the bundled snapshot would be replaced by data of an
+        unknown shape and the failure would only surface later, when a
+        patch is uploaded.
+
+        return: True if the payload is safe to use, False otherwise.
+        """
+
+        return (
+            isinstance(data, list)
+            and bool(data)
+            and all(
+                isinstance(x, dict) and "id" in x and "name" in x for x in data
+            )
+        )
 
     def refresh_patch_count(self):
         """Returns the number of ZOIA patches on PatchStorage,
@@ -159,18 +195,17 @@ class PatchStorage:
 
     def _get_license_data(self):
         """Get list of licenses, preferring the live PS API and
-        falling back to a bundled snapshot when offline."""
+        falling back to a bundled snapshot when it is unreachable or
+        answers with an unexpected shape."""
 
-        # Skip the request entirely when we already know we're offline.
-        if self.patch_count is not None:
-            try:
-                r = http.request("GET", self.url + "licenses/?per_page=100")
-                if r.status == 200:
-                    data = json.loads(r.data)
-                    if data:
-                        return data
-            except Exception:
-                pass
+        try:
+            r = http.request("GET", self.url + "licenses/?per_page=100")
+            if r.status == 200:
+                data = json.loads(r.data)
+                if self._is_valid_taxonomy(data):
+                    return data
+        except Exception:
+            pass
 
         return [
             {
@@ -351,18 +386,17 @@ class PatchStorage:
 
     def _get_categories_data(self):
         """Get list of categories, preferring the live PS API and
-        falling back to a bundled snapshot when offline."""
+        falling back to a bundled snapshot when it is unreachable or
+        answers with an unexpected shape."""
 
-        # Skip the request entirely when we already know we're offline.
-        if self.patch_count is not None:
-            try:
-                r = http.request("GET", self.url + "categories/?per_page=100")
-                if r.status == 200:
-                    data = json.loads(r.data)
-                    if data:
-                        return data
-            except Exception:
-                pass
+        try:
+            r = http.request("GET", self.url + "categories/?per_page=100")
+            if r.status == 200:
+                data = json.loads(r.data)
+                if self._is_valid_taxonomy(data):
+                    return data
+        except Exception:
+            pass
 
         return [
             {
@@ -579,18 +613,23 @@ class PatchStorage:
 
     @staticmethod
     def _next_revision(revision):
-        """Computes the next revision string with a modest minor
-        increment, e.g. "2.3" -> "2.31". Defaults to "1.01" when the
-        current revision contains no number.
+        """Computes the next revision string with a modest increment,
+        e.g. "2.3" -> "2.31". Revisions carrying three or more
+        components increment their last component instead, e.g.
+        "1.2.3" -> "1.2.4", so that no component is dropped. Defaults
+        to "1.01" when the current revision contains no number.
 
         revision: The current revision string of the patch.
 
         return: The bumped revision string.
         """
 
-        match = re.search(r"\d+(?:\.\d+)?", revision or "")
-        ver = float(match.group()) if match else 1.0
-        return "{:.2f}".format(ver + 0.01)
+        parts = re.findall(r"\d+", revision or "")
+        if not parts:
+            return "1.01"
+        if len(parts) > 2:
+            return ".".join(parts[:-1] + [str(int(parts[-1]) + 1)])
+        return "{:.2f}".format(float(".".join(parts)) + 0.01)
 
     def get_all_patch_data_init(self):
         """Retrieves the initial amount of information needed for
@@ -669,6 +708,14 @@ class PatchStorage:
             return new_patches
 
     def _patch_count(self):
+        """Queries the PS API for the number of ZOIA patches it hosts.
+
+        raise: urllib3.exceptions.HTTPError if PatchStorage did not
+               answer with a usable count.
+
+        return: The patch count as an int.
+        """
+
         endpoint = self.url + "patches/"
 
         # get param dict
@@ -684,5 +731,18 @@ class PatchStorage:
         url = str(furl(endpoint).add(params))
         r = http.request("GET", url)
 
-        # int(r.headers['X-WP-TotalPages'])
-        return int(r.headers['X-WP-Total'])
+        # A 5xx page, a login redirect or any other non-patch response
+        # completes the request but carries no count. Report that as an
+        # HTTP failure rather than letting a KeyError escape, so callers
+        # can treat every unreachable-API case the same way.
+        if r.status != 200:
+            raise urllib3.exceptions.HTTPError(
+                "PatchStorage returned HTTP {}".format(r.status)
+            )
+        try:
+            # int(r.headers['X-WP-TotalPages'])
+            return int(r.headers["X-WP-Total"])
+        except (KeyError, TypeError, ValueError):
+            raise urllib3.exceptions.HTTPError(
+                "PatchStorage response carried no usable patch count"
+            )

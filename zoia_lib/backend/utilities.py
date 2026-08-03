@@ -7,20 +7,26 @@ import threading
 
 from zoia_lib.common import errors
 
-# The set of patch categories known to PatchStorage, used to give
-# category matches priority in search results.
-CATEGORIES = (
-    "composition",
-    "effect",
-    "game",
-    "other",
-    "sampler",
-    "sequencer",
-    "sound",
-    "synthesizer",
-    "utility",
-    "video",
-)
+
+def merge_patch_metadata(new_patches, known):
+    """Merges freshly retrieved PS metadata into the metadata already
+    cached in data.json.
+
+    Pages are retrieved in blocks of 100, so the newest block can
+    overlap with patches that are already cached. Where both carry the
+    same patch the freshly retrieved copy wins; resolving the other way
+    would pin the cached copy and a patch updated on PatchStorage could
+    never refresh its metadata.
+
+    new_patches: The metadata just retrieved from PatchStorage.
+    known: The metadata previously stored in data.json.
+
+    return: A list holding the new metadata followed by the cached
+            metadata it did not supersede.
+    """
+
+    fresh = {x["id"] for x in new_patches}
+    return new_patches + [x for x in known if x["id"] not in fresh]
 
 
 def sort_metadata(mode, data, rev):
@@ -132,6 +138,11 @@ def search_patches(data, query):
 
     query = query.lower()
 
+    if not query:
+        # Every patch matches an empty query, so there is nothing to
+        # rank; return them in their existing order.
+        return list(data)
+
     hits = []
     # Track hits by object identity; comparing whole metadata dicts
     # against the hit list made the search quadratic.
@@ -141,18 +152,18 @@ def search_patches(data, query):
         hits.append(entry)
         seen.add(id(entry))
 
-    # Special case, searching for a category. Since there are a known # of
-    # categories, we prioritize these first. Note the direction of the
+    # Category matches are prioritized. Note the direction of the
     # match: the category has to start with the query, so "synt" ranks
     # Synthesizer patches first, but a query merely contained in a
-    # category name (e.g. "o") no longer reorders the results.
-    if any(cat.startswith(query) for cat in CATEGORIES):
-        for curr in data:
-            # Check category tag.
-            for category in curr.get("categories", []):
-                if category["name"].lower().startswith(query):
-                    add_hit(curr)
-                    break
+    # category name (e.g. "o") no longer reorders the results. The
+    # names are read from the patches themselves, so a category added
+    # on PatchStorage is picked up without editing this file.
+    for curr in data:
+        # Check category tag.
+        for category in curr.get("categories", []):
+            if category["name"].lower().startswith(query):
+                add_hit(curr)
+                break
 
     for curr in data:
         if id(curr) in seen:

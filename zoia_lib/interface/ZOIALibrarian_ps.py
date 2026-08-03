@@ -6,6 +6,7 @@ from PySide6 import QtCore
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QPushButton
 
+from zoia_lib.backend import utilities as util
 from zoia_lib.common import errors
 
 
@@ -79,13 +80,8 @@ class ZOIALibrarianPS(QMainWindow):
                     ps_data = self.api.get_all_patch_data_init()
                 else:
                     # Get the new patch metadata that we don't have.
-                    # Pages are fetched in blocks of 100, so the newest
-                    # block can overlap with patches we already know.
                     new_patches = self.api.get_newest_patches(len(data))
-                    known = {x["id"] for x in data}
-                    ps_data = [
-                        x for x in new_patches if x["id"] not in known
-                    ] + data
+                    ps_data = util.merge_patch_metadata(new_patches, data)
 
             # Create/update the data file with the new data.
             with open(os.path.join(self.path, "data.json"), "w") as f:

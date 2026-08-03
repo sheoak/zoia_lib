@@ -169,6 +169,76 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(api.PatchStorage._next_revision(None), "1.01")
         self.assertEqual(api.PatchStorage._next_revision("beta"), "1.01")
 
+    def test_next_revision_keeps_every_component(self):
+        """A three-part revision must not lose its last component to
+        the two-part decimal bump.
+        """
+
+        self.assertEqual(api.PatchStorage._next_revision("1.2.3"), "1.2.4")
+        self.assertEqual(api.PatchStorage._next_revision("v1.2.3"), "1.2.4")
+        self.assertEqual(api.PatchStorage._next_revision("1.2.9"), "1.2.10")
+
+    def test_patch_count_reports_http_failure(self):
+        """A response that completes but carries no count (a 5xx page,
+        an error page, a garbled header) must surface as an HTTP error
+        so the UI can treat it like any other unreachable-API case.
+        """
+
+        fresh = _make_patch_storage()
+        fresh.patch_count = None
+        exc = urllib3.exceptions.HTTPError
+
+        responses = [
+            mock.Mock(status=500, data=b"<html>error</html>", headers={}),
+            mock.Mock(status=200, data=b"[]", headers={}),
+            mock.Mock(status=200, data=b"[]", headers={"X-WP-Total": "lots"}),
+        ]
+        for response in responses:
+            with mock.patch("urllib3.PoolManager.request") as mock_request:
+                mock_request.return_value = response
+                self.assertRaises(exc, fresh.refresh_patch_count)
+            self.assertIsNone(fresh.patch_count)
+
+    def test_taxonomy_lists_are_lazy(self):
+        """Constructing PatchStorage should make a single request; the
+        license/category lists resolve on first use.
+        """
+
+        with mock.patch("urllib3.PoolManager.request") as mock_request:
+            mock_request.return_value = mock.Mock(
+                status=200, data=b"[]", headers={"X-WP-Total": "2500"}
+            )
+            fresh = api.PatchStorage()
+            self.assertEqual(mock_request.call_count, 1)
+
+        live = [{"id": 1, "slug": "live", "name": "Live"}]
+        with mock.patch("urllib3.PoolManager.request") as mock_request:
+            mock_request.return_value = mock.Mock(
+                status=200, data=json.dumps(live).encode("utf-8")
+            )
+            self.assertEqual(fresh.licenses, live)
+            self.assertEqual(mock_request.call_count, 1)
+            # Resolved once, then cached.
+            self.assertEqual(fresh.licenses, live)
+            self.assertEqual(mock_request.call_count, 1)
+
+    def test_taxonomy_rejects_unexpected_shape(self):
+        """A live payload without the id/name pairs the application
+        indexes by must fall back to the bundled snapshot instead of
+        failing later, at upload time.
+        """
+
+        fresh = _make_patch_storage()
+
+        for payload in (b'["effect", "utility"]', b'{"error": "nope"}', b"[]"):
+            fresh._categories = None
+            with mock.patch("urllib3.PoolManager.request") as mock_request:
+                mock_request.return_value = mock.Mock(status=200, data=payload)
+                categories = fresh.categories
+            self.assertTrue(any(x["slug"] == "effect" for x in categories))
+            # The bundled snapshot is what update_patch() indexes into.
+            self.assertTrue(all("id" in x and "name" in x for x in categories))
+
     def test_offline_start_falls_back_to_bundled_data(self):
         """When PatchStorage cannot be reached at startup, the patch
         count is None and the bundled license/category snapshots are
