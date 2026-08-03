@@ -39,9 +39,8 @@ class PatchEncoder(Patch):
         ================================================================
         """
 
-        file = None
-        if output_path:
-            file = open(output_path, "w+b")
+        # The output file is only opened once the whole patch has been built,
+        # so a failure part-way through cannot truncate an existing patch.
         color_dict = {
             "Blue": 1,
             "Green": 2,
@@ -241,9 +240,9 @@ class PatchEncoder(Patch):
         padding = bytearray(b"\x00" * int(padding_length))
         file_array.extend(padding)
 
-        if file:
-            file.write(file_array)
-            file.close()
+        if output_path:
+            with open(output_path, "wb") as file:
+                file.write(file_array)
 
         return file_array
 
@@ -382,10 +381,16 @@ class PatchEncoder(Patch):
         # which is sequential and left-aligned
         if text is None:
             text = ""
-        if len(text) > byte_array_length:
-            text = text[:byte_array_length]
-        format_string = "{}B{}x".format(len(text), byte_array_length - len(text))
-        data = list(text.encode())
+
+        # The field is a fixed number of BYTES, so truncate the encoded form,
+        # not the string: a non-ASCII character costs more than one byte.
+        data = text.encode("utf-8")
+        if len(data) > byte_array_length:
+            data = data[:byte_array_length]
+            # Drop a multi-byte character the cut landed in the middle of.
+            data = data.decode("utf-8", "ignore").encode("utf-8")
+
+        format_string = "{}B{}x".format(len(data), byte_array_length - len(data))
 
         return bytearray(struct.pack(format_string, *data))
 

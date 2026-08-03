@@ -60,6 +60,11 @@ class PatchBinary(Patch):
         if byt is None:
             raise errors.BinaryError(None)
 
+        # Anything shorter than the header cannot be a patch; without this the
+        # unpacking below fails with an IndexError far from the real cause.
+        if len(byt) < 24:
+            raise errors.BinaryError(byt, 101)
+
         # Extract the string name of the patch.
         name = self._qc_name(byt[4:])
 
@@ -284,12 +289,17 @@ class PatchBinary(Patch):
 
     @staticmethod
     def _qc_name(name):
-        try:
-            name = str(name).split("\\")[0].split("'")[1]
-        except IndexError:
-            name = str(name).split("\\")[0]
+        """Decodes a fixed-width, NUL-padded name field.
 
-        return name.split('b"')[-1]
+        name: The raw bytes of the field.
+
+        return: The name, without its padding.
+        """
+
+        if isinstance(name, str):
+            name = name.encode("utf-8", "replace")
+
+        return bytes(name).split(b"\x00")[0].decode("utf-8", "replace")
 
     @staticmethod
     def _get_module_data(module_id, key):
