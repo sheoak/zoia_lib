@@ -169,12 +169,17 @@ class PatchEncoder(Patch):
         connections_array = bytearray()
         connection_count_array = self.encode_value(pch["meta"]["n_connections"], 4)
         connections_array.extend(connection_count_array)
-        for module, color_id in self._iter_colors(pch):
-            if isinstance(color_id, str):
-                color_value = color_dict[color_id]
-            else:
-                color_value = color_id
-            colors_array.extend(self.encode_value(color_value, 4))
+        # Patches predating the per-module colour section carry none, and the
+        # pedal reads this section in preference to the header colours: writing
+        # one built from what the parser found past the end of such a file sets
+        # every module to colour 0, and the patch loads uncoloured.
+        if pch.get("colors_present", True):
+            for module, color_id in self._iter_colors(pch):
+                if isinstance(color_id, str):
+                    color_value = color_dict[color_id]
+                else:
+                    color_value = color_id
+                colors_array.extend(self.encode_value(color_value, 4))
 
         for connection in pch["connections"]:
             connection_array = bytearray()
