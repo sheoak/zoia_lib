@@ -428,6 +428,14 @@ class PatchBinary(Patch):
         """
 
         for star in starred:
+            # A star can be placed on a connection rather than on a module
+            # parameter, and stores -(connection index + 1). Indexing the list
+            # with it would count from the end and hand an unrelated module a
+            # favourite it does not have, so those are left to the patch-level
+            # list, where the negative index still identifies the connection.
+            if star["module"] < 0:
+                continue
+
             data = "{}.{} CC {}".format(
                 modules[star["module"]]["type"]
                 if modules[star["module"]]["name"] == ""
