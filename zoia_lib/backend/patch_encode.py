@@ -195,12 +195,18 @@ class PatchEncoder(Patch):
         # Build out the byte array for the pages by first calculating the number of pages,
         # then looping over them and pulling out the names
         pages_array = bytearray()
-        pages_count = pch.get("pages_count", pch["meta"]["n_pages"])
+        # Prefer the count and names read from the file: the display list is
+        # trimmed to the last page in use, and writing that back would drop
+        # the name of any page without modules on it.
+        pages_count = pch.get(
+            "pages_count_raw", pch.get("pages_count", pch["meta"]["n_pages"])
+        )
+        page_names = pch.get("pages_raw") or pch.get("pages", [])
         pages_count_array = self.encode_value(pages_count, 4)
         pages_array.extend(pages_count_array)
-        for page in pch["pages"][:pages_count]:
-            page_array = self.encode_text(page, 16)
-            pages_array.extend(page_array)
+        for i in range(pages_count):
+            name = page_names[i] if i < len(page_names) else ""
+            pages_array.extend(self.encode_text(name, 16))
 
         # Build out the byte array for starred params by first calculating the number
         # of starred params, then looping over them and pulling out the values to be

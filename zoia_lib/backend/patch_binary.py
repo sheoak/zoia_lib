@@ -205,13 +205,16 @@ class PatchBinary(Patch):
         # Extract the page data for each page in the patch.
         pages_count_raw = int(data[curr_step])
         for k in range(pages_count_raw):
-            if k < self.MAX_PAGES:
-                curr_page = self._qc_name(
-                    byt[(curr_step + 1) * 4: (curr_step + 1) * 4 + 16]
-                )
-                pages.append(curr_page)
+            curr_page = self._qc_name(
+                byt[(curr_step + 1) * 4: (curr_step + 1) * 4 + 16]
+            )
+            pages.append(curr_page)
             curr_step += 4
-        # Get number of pages and fill with blank strings
+        # Every name the file holds, so the encoder can put them all back. A
+        # patch may name a page that carries no module - a credits page, for
+        # instance - and those names must not be dropped.
+        pages_raw = list(pages)
+        # The list shown to the user stops at the last page in use.
         max_page = max((m["page"] for m in modules), default=0)
         n_pages = min(max_page + 1, self.MAX_PAGES)
         while len(pages) < n_pages:
@@ -266,7 +269,9 @@ class PatchBinary(Patch):
             "modules": modules,
             "connections": connections,
             "pages": pages,
+            "pages_raw": pages_raw,
             "pages_count": pages_count,
+            "pages_count_raw": pages_count_raw,
             "starred": starred,
             "colors": colors,
             "meta": {
