@@ -4,6 +4,7 @@ import unittest
 import zipfile
 
 from zoia_lib.backend.patch_binary import PatchBinary
+from zoia_lib.common import errors
 
 
 class FormatTest(unittest.TestCase):
@@ -44,3 +45,10 @@ class FormatTest(unittest.TestCase):
         self.assertIsInstance(parsed, dict)
         self.assertIn("modules", parsed)
         self.assertTrue(parsed["modules"], "Parsed patch should include modules.")
+
+    def test_truncated_binary_raises_binary_error(self):
+        """A file too short to hold a header is reported, not an IndexError."""
+
+        for byt in (b"", b"\x01\x02\x03", b"\x00" * 23):
+            with self.assertRaises(errors.BinaryError):
+                PatchBinary().parse_data(byt)
