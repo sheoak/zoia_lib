@@ -142,6 +142,24 @@ class PatchEncoder(Patch):
             module_array.extend(module_saved_data)
             module_array.extend(module_name)
 
+            # The record above is rebuilt in the current module format, but the
+            # header still declares the size the file came with. Early firmwares
+            # wrote shorter records - they carry no name field, for instance - so
+            # ours can overrun what it claims to be. The pedal walks the modules
+            # by that declared size, which would put every field after this
+            # module at the wrong offset: refuse rather than write a patch that
+            # reads back as something else.
+            if len(module_array) != module["size"] * 4:
+                raise errors.BinaryError(
+                    "module {} ({}): {} bytes rebuilt against {} declared".format(
+                        module.get("number"),
+                        module.get("type"),
+                        len(module_array),
+                        module["size"] * 4,
+                    ),
+                    102,
+                )
+
             # Add the module byte array to the modules byte array, by first
             # appending the size of the module, then the module pch
             modules_array.extend(module_array)
