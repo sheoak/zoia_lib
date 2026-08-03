@@ -515,8 +515,19 @@ class PatchSave(Patch):
             name_zip = os.path.join(pch, "{}.zip".format(patch_id))
             with open(name_zip_tmp, "wb") as f:
                 f.write(patch[0])
-            self._remove_bad_filename(name_zip_tmp, name_zip)
+            try:
+                self._remove_bad_filename(name_zip_tmp, name_zip)
+            except zipfile.BadZipFile:
+                os.remove(name_zip_tmp)
+                shutil.rmtree(pch, ignore_errors=True)
+                raise errors.SavingError(patch[1]["title"], 506)
             os.remove(name_zip_tmp)
+
+            if not os.path.exists(name_zip):
+                # The archive held no .bin or sample files, so there is
+                # nothing for us to save.
+                shutil.rmtree(pch, ignore_errors=True)
+                raise errors.SavingError(patch[1]["title"], 501)
 
             with zipfile.ZipFile(
                 os.path.join(pch, "{}.zip".format(patch_id)), "r"
@@ -584,8 +595,12 @@ class PatchSave(Patch):
         for file in os.listdir(pch):
             if os.path.isdir(os.path.join(pch, file)) and file == "__MACOSX":
                 shutil.rmtree(os.path.join(pch, file))
-            if file == '.DS_Store' or file == '._.DS_Store':
-                os.remove(file)
+            elif os.path.isfile(os.path.join(pch, file)) and (
+                file == '.DS_Store' or file.startswith('._')
+            ):
+                # .DS_Store and the AppleDouble resource forks that come
+                # along with samples zipped up on macOS.
+                os.remove(os.path.join(pch, file))
 
         new_dir = False
         for file in os.listdir(pch):
@@ -628,10 +643,13 @@ class PatchSave(Patch):
                         )
                         patch[1]["files"][0]["filename"] = name
                         self.save_metadata_json(patch[1], i)
-                    except FileNotFoundError or FileExistsError:
+                    except (FileNotFoundError, FileExistsError):
                         raise errors.RenamingError(patch, 601)
-                else:
-                    # Remove any additional files.
+                elif not file.endswith(tuple(accepted_files)) and not os.path.isdir(
+                    os.path.join(pch, file)
+                ):
+                    # Remove any additional files. Samples and the
+                    # directories that may hold them are dealt with below.
                     # TODO make this better. Shouldn't just delete
                     #  additional files. Especially .txt, would want to
                     #  add that to the content attribute in the JSON.
@@ -646,15 +664,15 @@ class PatchSave(Patch):
             for file in wav_files:
                 if file.split(".")[-1] == "wav" or file.split(".")[-1] == "WAV":
                     try:
-                        name = file.split("/")[-1].split(".")[0]
+                        name = os.path.basename(file).split(".")[0]
                         shutil.copy(
                             file,
                             os.path.join(self.back_path, "Samples", patch_id,
                                              "{}.wav".format(name))
                         )
                         os.remove(os.path.join(pch, file))
-                    except FileNotFoundError or FileExistsError:
-                        raise errors.SavingError(patch, 501)
+                    except (FileNotFoundError, FileExistsError):
+                        raise errors.SavingError(patch[1]["title"], 501)
                 else:
                     os.remove(os.path.join(pch, file))
 
@@ -665,8 +683,8 @@ class PatchSave(Patch):
                                 os.path.join(self.back_path, "Samples", patch_id),
                                 dirs_exist_ok=True)
                 shutil.rmtree(os.path.join(pch, new_dir))
-            except FileNotFoundError or FileExistsError:
-                raise errors.SavingError(patch, 501)
+            except (FileNotFoundError, FileExistsError):
+                raise errors.SavingError(patch[1]["title"], 501)
 
         if to_delete is not None:
             # We need to cleanup.
