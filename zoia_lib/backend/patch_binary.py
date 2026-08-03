@@ -103,6 +103,7 @@ class PatchBinary(Patch):
                 "size_of_saveable_data": data[curr_step + 7],
                 "version": data[curr_step + 2],
                 "page": page,
+                "page_raw": page_raw,
                 "position": [
                     x
                     for x in range(
@@ -175,7 +176,9 @@ class PatchBinary(Patch):
             curr_module.pop("new_color", None)
             curr_module.pop("old_color", None)
             curr_module.pop("options_copy", None)
-            curr_module.pop("options_list", None)
+            # Keep the raw option bytes: the module index does not describe
+            # every option, and the encoder must be able to put them back.
+            curr_module["options_raw"] = curr_module.pop("options_list")
 
             modules.append(curr_module)
             curr_step += size
