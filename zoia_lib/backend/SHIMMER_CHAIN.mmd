@@ -1,0 +1,50 @@
+flowchart LR
+    IN["Audio In<br/>stereo"]
+    COMP["Compressor<br/>4:1 mono"]
+    PRE["Pre-delay<br/>Delay Line idx13<br/>max_time 100ms"]
+    REV["REVERB MAISON<br/>4 Diffuser + 2 SV Filter<br/>gain des Diffuser BAS et fixe<br/>mono in / stereo out<br/>detail dans SHIMMER_DIFFUSER.mmd"]
+    VFB["VCA feedback<br/>level = Depth<br/>fixe le retour TOTAL"]
+    VBL["VCA Blend<br/>level = Blend"]
+    VDR["VCA 1-Blend<br/>level = 1 - Blend"]
+    PS["PS loop<br/>+12 / 0.600000"]
+    BAL["Audio Balance<br/>mix = Mix"]
+    OUT["Audio Out"]
+
+    KMIX["Value Mix"]
+    KBLEND["Value Blend"]
+    KDEPTH["Value Depth"]
+    KTONE["Value Tone"]
+    NEG["Value neg1"]
+    INV["CV Invert"]
+
+    IN -->|out_L + out_R a 50 pct| COMP
+    IN -->|dry stereo| BAL
+    COMP --> PRE
+    PRE -->|100 pct, non transpose| REV
+    PRE -->|le direct passe par le Blend| VBL
+
+    REV -->|out_L, le retour de boucle| VFB
+    VFB --> VBL
+    VFB --> VDR
+    VBL --> PS
+    PS -->|X pct, egalise les 2 branches| REV
+    VDR -->|100 pct| REV
+
+    REV --> BAL --> OUT
+
+    KDEPTH --> VFB
+    KBLEND --> VBL
+    KBLEND --> INV
+    NEG --> INV
+    INV --> VDR
+    KTONE -->|frequency des 2 filtres| REV
+    KMIX --> BAL
+
+    classDef loop fill:#7c2d12,stroke:#fb923c,color:#fed7aa
+    classDef verb fill:#164e63,stroke:#22d3ee,color:#e5e7eb
+    classDef path fill:#1f2937,stroke:#60a5fa,color:#e5e7eb
+    classDef ctrl fill:#134e4a,stroke:#2dd4bf,color:#e5e7eb
+    class VFB,VBL,VDR,PS loop
+    class REV verb
+    class IN,COMP,PRE,BAL,OUT path
+    class KMIX,KBLEND,KDEPTH,KTONE,NEG,INV ctrl

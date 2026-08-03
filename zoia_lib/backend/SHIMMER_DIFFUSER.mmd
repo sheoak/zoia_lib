@@ -1,0 +1,29 @@
+flowchart LR
+    ENTREE["entree mono<br/>Pre-delay + retour de boucle"]
+
+    D1L["Diffuser 1L / idx78<br/>gain -4 dB<br/>size 2100<br/>mod_width 45 smpls<br/>mod_rate 2.4 s"]
+    D2L["Diffuser 2L / idx78<br/>gain -4 dB<br/>size 3400<br/>mod_width 70 smpls<br/>mod_rate 3.1 s"]
+    FL["SV Filter L / idx0<br/>lowpass on<br/>hipass bandpass off<br/>freq_change smooth<br/>resonance 1.0 = minimum<br/>frequency 27.5 Hz + CV Tone"]
+
+    D1R["Diffuser 1R / idx78<br/>gain -4 dB<br/>size 2700<br/>mod_width 55 smpls<br/>mod_rate 2.7 s"]
+    D2R["Diffuser 2R / idx78<br/>gain -4 dB<br/>size 4600<br/>mod_width 80 smpls<br/>mod_rate 3.6 s"]
+    FR["SV Filter R / idx0<br/>lowpass on<br/>resonance 1.0<br/>frequency 27.5 Hz + CV Tone"]
+
+    VFB["VCA feedback stereo / idx7<br/>level = Depth, vers -1 dB<br/>SORTIES CROISEES"]
+
+    SL["out L -> Audio Balance"]
+    SR["out R -> Audio Balance"]
+
+    ENTREE --> D1L --> D2L --> FL --> SL
+    ENTREE --> D1R --> D2R --> FR --> SR
+    FL -->|in_1| VFB
+    FR -->|in_2| VFB
+    VFB -->|out_1 croise| D1R
+    VFB -->|out_2 croise| D1L
+
+    classDef verb fill:#164e63,stroke:#22d3ee,color:#e5e7eb
+    classDef loop fill:#7c2d12,stroke:#fb923c,color:#fed7aa
+    classDef io fill:#1f2937,stroke:#60a5fa,color:#e5e7eb
+    class D1L,D2L,FL,D1R,D2R,FR verb
+    class VFB loop
+    class ENTREE,SL,SR io

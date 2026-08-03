@@ -1,0 +1,134 @@
+THE MAGICIAN
+A Mood-inspired micro-looper + granular + FX for the Empress ZOIA
+====================================================================
+
+Inspired by the Chase Bliss Mood, but heavily reworked and expanded -
+it takes the "capture and mangle a slice of sound" spirit and builds a
+different, more open instrument around it (shared FX bus, granular on
+the loop, coupled record dry/wet, true-stereo loopers).
+
+Part of a Tarot-arcana series. The Magician "captures and transmutes":
+you loop what you play, then reshape it with granular processing and a
+delay/reverb effects bus. Stereo in / stereo out.
+
+
+--------------------------------------------------------------------
+SIGNAL ARCHITECTURE (aux-send, stereo)
+--------------------------------------------------------------------
+
+The patch is built like a small studio mixer with AUX SENDS, not a
+simple series chain:
+
+  IN (stereo) --+--> LIVE dry (direct) -----------------------> OUT
+                +--> Live aux send --\
+                                      >--> [DELAY -> REVERB] --> OUT   (shared WET bus)
+  LOOPER --> GRANULAR --+--> Loop dry (direct) --------------> OUT
+                        +--> Loop aux send --/
+
+Key points:
+
+* SHARED WET BUS. The Delay and the Reverb form ONE wet bus (Delay ->
+  Reverb, in series). BOTH the live signal AND the loop feed it through
+  independent aux sends:
+      - "Live FX Snd"  = how much of the LIVE signal is sent to the FX
+      - "Loop FX Snd"  = how much of the LOOP is sent to the FX
+  Each source is a dry/wet crossfade (dry-direct vs aux-send), so the
+  two sources can have different wet amounts while sharing a single
+  Delay + Reverb (saves CPU vs duplicating the effects).
+
+* THE GRANULAR IS NOT IN THE FX BUS. The granular is placed on the
+  LOOP only, POST-looper (it grinds whatever is in the loop, live). It
+  is NOT part of the Delay/Reverb bus and it does NOT touch the live
+  signal. So the granular reshapes the LOOP, and the FX bus adds
+  space/echo to live + loop.
+
+* STEREO throughout. Two loopers (L and R) run in parallel for a true
+  stereo loop; the sends, crossfades, delay and reverb are all stereo.
+
+
+--------------------------------------------------------------------
+RECORD DRY / WET  (the important bit: coupled to LOOP FX on/off)
+--------------------------------------------------------------------
+
+What gets baked into the loop when you record depends on the LOOP FX
+toggle. This is intentional and avoids stacking effects:
+
+* LOOP FX OFF  ->  RECORD WET
+  The loop captures the signal WITH the effects (delay/reverb baked in).
+  Rationale: with Loop FX off, the loop is NOT re-sent to the FX at
+  playback, so you want the effect character frozen into the recording.
+  Playback = the wet you performed, fixed.
+
+* LOOP FX ON   ->  RECORD DRY
+  The loop captures the DRY signal only. Rationale: with Loop FX on,
+  the loop IS routed to the FX bus at playback (live effects applied to
+  the loop). Recording dry avoids stacking (baked FX + live FX = mush /
+  runaway). You get live, tweakable effects on a clean loop.
+
+The "Loop FX Snd" knob does double duty:
+  - Loop FX OFF -> sets how much WET is baked into the recording
+  - Loop FX ON  -> sets the loop's live send amount to the FX bus
+
+
+--------------------------------------------------------------------
+HOME PAGE LAYOUT (page 0)
+--------------------------------------------------------------------
+
+Organised in columns, one effect per column; knobs on top, on/off and
+performance buttons on the bottom row.
+
+  DELAY column     : Delay Feedback, Delay Time, Delay Depth, Delay Mix
+  REVERB column    : Rev. Decay, Rev. Low EQ, Rev. High, Rev. Mix
+  LOOPER column    : Loop Start, Loop Length, Loop Clock, Loop Level
+  GRANULAR column  : Grain Pos, Grain Size, Grain Pitch, Grain Mix,
+                     Grain Density
+  SENDS / MASTER   : Live FX Snd, Loop FX Snd, Out Gain
+
+  Bottom row (toggles / performance):
+    Delay On | Reverb On | Loop FX | Grain On | FX On
+    Loop Reverse L | Loop Reverse R | Grain Freeze
+
+  On/off indicators use one shared colour scheme (dim = off, bright =
+  on). "FX On" is the master wet on/off, "Loop FX" flips the loop
+  routing + record dry/wet behaviour described above.
+
+
+--------------------------------------------------------------------
+STOMPSWITCHES  (tap / hold)
+--------------------------------------------------------------------
+
+  LEFT  (Rec/Dub) : TAP  = Record / Overdub
+                    HOLD = Play / Stop
+  MID   (Frz/Clr) : TAP  = Granular Freeze
+                    HOLD = Clear / reset the loop
+  RIGHT (Wet)     : TAP  = Wet (FX bus) on/off
+                    HOLD = Loop FX on/off
+
+
+--------------------------------------------------------------------
+LOOPER REVERSE  (individual, stereo)
+--------------------------------------------------------------------
+
+The two loopers (L and R) have INDEPENDENT reverse controls
+("Loop Reverse L" and "Loop Reverse R" on the home page). Reversing
+only one channel splits the stereo image (one side forward, one side
+backward) for wide, disorienting textures; reverse both together for a
+normal full reverse. This is a feature, not a bug - it exploits the
+true-stereo two-looper design.
+
+
+--------------------------------------------------------------------
+NOTES
+--------------------------------------------------------------------
+
+* CPU: this patch runs CLOSE TO THE ZOIA'S LIMIT. The granular, the
+  reverb and the delay are the heavy modules. If you hit CPU errors,
+  lower the granular's grain count, or swap the Hall reverb for a
+  lighter one. Adding modules on top may push it over - trim elsewhere
+  first.
+
+* MIDI: most parameters are mapped to MIDI CC (channel 12) for external
+  control.
+
+* Everything is stereo - use stereo I/O for the full effect (mono in
+  will leave one side of the stereo field empty on the direct paths).

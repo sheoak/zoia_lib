@@ -1,0 +1,51 @@
+flowchart LR
+    IN["Audio In idx1<br/>stereo"]
+    HALLA["Hall A idx74<br/>mix 1.00 decay 0.35<br/>low_eq 0.31 lpf 0.85"]
+    PSA["PS A idx59<br/>0.600000 = +12.00 st"]
+    PSB["PS B idx59<br/>0.599167 = +11.90 st"]
+    VIB["Vibrato idx71<br/>stereo sine<br/>rate 0.07 width 0.07"]
+    MFL["Filter L idx24<br/>lowpass<br/>freq 0.62 q 0.25"]
+    MFR["Filter R idx24<br/>lowpass<br/>freq 0.62 q 0.25"]
+    LOOP["VCA loop idx7<br/>level 0.25 a 0.60<br/>stereo"]
+    HALLB["Hall B idx74<br/>propre, sans boucle<br/>mix 1.00 decay 0.35"]
+    VCAA["VCA A idx7<br/>level = Blend"]
+    VCAB["VCA B idx7<br/>level = 1-Blend"]
+    WET["VCA wet idx7<br/>level = Mix"]
+    DRY["VCA dry idx7<br/>level = 1-Mix"]
+    OUT["Audio Out idx2<br/>gain 0.90"]
+    MIX["Value Mix idx45<br/>0 to 1"]
+    BLEND["Value Blend idx45<br/>0 to 1"]
+    NEG["Value neg1 idx45<br/>-1 to 1, 0.00"]
+    INV1["CV Invert idx17"]
+    INV2["CV Invert idx17"]
+
+    IN --> HALLA
+    IN --> HALLB
+    IN --> DRY --> OUT
+    HALLA -->|out_L| PSA
+    HALLA -->|out_R| PSB
+    PSA -->|in_L| VIB
+    PSB -->|in_R| VIB
+    VIB -->|out_L| MFL
+    VIB -->|out_R| MFR
+    MFL -->|in_1| LOOP
+    MFR -->|in_2| LOOP
+    LOOP --> HALLA
+    HALLA --> VCAA --> WET
+    HALLB --> VCAB --> WET
+    WET --> OUT
+    MIX --> WET
+    MIX --> INV1
+    NEG --> INV1
+    INV1 --> DRY
+    BLEND --> VCAA
+    BLEND --> INV2
+    NEG --> INV2
+    INV2 --> VCAB
+
+    classDef loop fill:#312e81,stroke:#a78bfa,color:#e5e7eb
+    classDef path fill:#1f2937,stroke:#60a5fa,color:#e5e7eb
+    classDef ctrl fill:#134e4a,stroke:#2dd4bf,color:#e5e7eb
+    class PSA,PSB,VIB,MFL,MFR,LOOP loop
+    class IN,HALLA,HALLB,VCAA,VCAB,WET,DRY,OUT path
+    class MIX,BLEND,NEG,INV1,INV2 ctrl

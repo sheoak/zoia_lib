@@ -1,0 +1,52 @@
+flowchart LR
+    IN["Audio In<br/>stereo"]
+    COMP["Compressor<br/>4:1 mono"]
+    PSD["PS direct<br/>+12 / 0.600000"]
+    PSC["PS sub<br/>-12 / 0.400000"]
+    PSL["PS loop<br/>+12 / 0.600000"]
+    VMIX["VCA mix<br/>level = Blend"]
+    VLOOP["VCA loop<br/>level = Resonance"]
+    REV["REVERB MAISON<br/>4 Diffuser + 2 SV Filter<br/>mono in / stereo out<br/>detail dans SHIMMER_DIFFUSER.mmd"]
+    RET["VCA return<br/>0.90"]
+    BAL["Audio Balance<br/>mix = Mix"]
+    OUT["Audio Out"]
+
+    KMIX["Value Mix"]
+    KBLEND["Value Blend"]
+    KRES["Value Resonance"]
+    KTONE["Value Tone"]
+    KDEPTH["Value Depth"]
+
+    IN -->|out_L + out_R a 50 pct| COMP
+    IN -->|dry stereo| BAL
+    COMP -->|100 pct, toujours plein| REV
+    COMP --> PSD
+    COMP --> PSC
+    PSD -->|100 pct| VMIX
+    PSC -->|50 pct = voicing| VMIX
+    VMIX -->|80 pct = plafond| REV
+
+    REV -->|retour de boucle| PSL
+    PSL --> VLOOP
+    VLOOP -->|40 pct = plafond| REV
+
+    REV --> RET --> BAL --> OUT
+
+    KBLEND --> VMIX
+    KRES --> VLOOP
+    KTONE -->|frequency des 2 filtres| REV
+    KDEPTH -->|gain des 4 Diffuser| REV
+    KMIX --> BAL
+
+    classDef shim fill:#312e81,stroke:#a78bfa,color:#e5e7eb
+    classDef sub fill:#4c1d95,stroke:#c4b5fd,color:#e5e7eb
+    classDef loop fill:#7c2d12,stroke:#fb923c,color:#fed7aa
+    classDef verb fill:#164e63,stroke:#22d3ee,color:#e5e7eb
+    classDef path fill:#1f2937,stroke:#60a5fa,color:#e5e7eb
+    classDef ctrl fill:#134e4a,stroke:#2dd4bf,color:#e5e7eb
+    class PSD,VMIX shim
+    class PSC sub
+    class PSL,VLOOP loop
+    class REV verb
+    class IN,COMP,RET,BAL,OUT path
+    class KMIX,KBLEND,KRES,KTONE,KDEPTH ctrl
