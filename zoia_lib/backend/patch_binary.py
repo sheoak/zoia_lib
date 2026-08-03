@@ -75,6 +75,9 @@ class PatchBinary(Patch):
         # Get a list of colors for the modules
         # (appears at the end of the binary)
         temp = [i for i, e in enumerate(data) if e != 0]
+        # An all-zero file has no last word to anchor the colour section to.
+        if not temp:
+            raise errors.BinaryError(byt, 101)
         last_color = temp[-1] + 1
         first_color = last_color - int(data[5])
         colors = []
@@ -163,7 +166,13 @@ class PatchBinary(Patch):
                     if not opt:
                         continue
                     option = curr_module["options_list"][v]
-                    value = curr_module["options_copy"][opt][option]
+                    choices = curr_module["options_copy"][opt]
+                    # The firmware may offer a choice this index does not list -
+                    # Cabinet Sim stores channels = 2 against two named values.
+                    # Keep the raw number rather than refusing the whole patch:
+                    # options_raw carries the bytes back to the encoder, so the
+                    # round-trip stays exact whether or not we can name it.
+                    value = choices[option] if 0 <= option < len(choices) else option
                     curr_module["options"][opt] = value
                     curr_module["options_binary"][opt] = option
                     v += 1
@@ -387,9 +396,13 @@ class PatchBinary(Patch):
             13: "Pink",
             14: "Peach",
             15: "Mango",
-        }[color_id]
+        }
 
-        return color
+        # A module can carry an id the palette does not cover: 0 means no colour
+        # was ever set. "" is what the caller already treats as unknown, and the
+        # encoder writes header_color_id and the colours list, so a name we
+        # cannot resolve costs nothing on the way back.
+        return color.get(color_id, "")
 
     def _add_connections(self, modules, connections):
         """Appends all applicable connections to each module.
