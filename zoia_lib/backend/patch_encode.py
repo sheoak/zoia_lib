@@ -216,7 +216,11 @@ class PatchEncoder(Patch):
         for starred_param in pch["starred"]:
             starred_module_array = self.encode_value(starred_param["module"], 2)
 
-            if starred_param["midi_cc"] == "None":
+            if "block_raw" in starred_param:
+                starred_block_midi_array = self.encode_value(
+                    starred_param["block_raw"], 2
+                )
+            elif starred_param["midi_cc"] == "None":
                 starred_block_midi_array = self.encode_value(starred_param["block"], 2)
             else:
                 cc = 128 * (starred_param["midi_cc"]+1) + starred_param["block"]
@@ -410,6 +414,25 @@ class PatchEncoder(Patch):
     def encode_value(value, byte_array_length):
         # Helper function used to handle non-text encoding, which is little-endian
         # and left-aligned
+
+        # A star placed on a connection is stored as a negative module index,
+        # so this field has to carry signed values too. log() would raise on
+        # them, and an unsigned format cannot represent them.
+        if value < 0:
+            if -32768 <= value <= 32767:
+                signed_format, signed_bytes = "h", 2
+            elif -(2 ** 31) <= value < 2 ** 31:
+                signed_format, signed_bytes = "i", 4
+            else:
+                signed_format, signed_bytes = "q", 8
+            if signed_bytes > byte_array_length:
+                raise errors.BinaryError(None)
+            return bytearray(
+                struct.pack(
+                    "<{}{}x".format(signed_format, byte_array_length - signed_bytes),
+                    value,
+                )
+            )
 
         # Determine the number of bits required to encode the value
         # log of 0 is undefined, so account for the edge case
