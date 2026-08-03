@@ -229,6 +229,9 @@ class PatchBinary(Patch):
             )
             curr_param = {
                 "module": byte2[0],
+                # A star on a connection stores -1 here, which the modulo below
+                # would turn into 127, so keep what the file actually holds.
+                "block_raw": byte2[1],
                 "block": byte2[1] % 128,
                 "midi_cc": int(round(byte2[1] / 128) - 1)
                 if byte2[1] >= 128
