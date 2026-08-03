@@ -77,7 +77,7 @@ class PatchEncoder(Patch):
             module_size = self.encode_value(module["size"], 4)
             module_type = self.encode_value(module["mod_idx"], 4)
             module_version = self.encode_value(module["version"], 4)
-            module_page = self.encode_value(module["page"], 4)
+            module_page = self.encode_value(module.get("page_raw", module["page"]), 4)
             module_color_id = module.get("header_color_id")
             if module_color_id is None:
                 module_color_id = color_dict[module["color"]]
@@ -248,6 +248,12 @@ class PatchEncoder(Patch):
 
     @staticmethod
     def _get_options_bytes(module):
+        # The raw bytes win: the module index does not describe every option a
+        # module can carry, and rebuilding from the named ones loses the rest.
+        options_raw = module.get("options_raw")
+        if isinstance(options_raw, (list, tuple)):
+            return list(options_raw)[:8]
+
         options_binary = module.get("options_binary", {})
         if isinstance(options_binary, (list, tuple)):
             return list(options_binary)[:8]
