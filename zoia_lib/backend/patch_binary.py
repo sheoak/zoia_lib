@@ -244,9 +244,10 @@ class PatchBinary(Patch):
                 # would turn into 127, so keep what the file actually holds.
                 "block_raw": byte2[1],
                 "block": byte2[1] % 128,
-                "midi_cc": int(round(byte2[1] / 128) - 1)
-                if byte2[1] >= 128
-                else "None",
+                # The encoder packs this field as 128 * (cc + 1) + block, so the
+                # CC is the quotient. round() borrows from the block whenever it
+                # exceeds 64 and returns a CC one too high.
+                "midi_cc": byte2[1] // 128 - 1 if byte2[1] >= 128 else "None",
             }
             starred.append(curr_param)
             curr_step += 1
