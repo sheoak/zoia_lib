@@ -189,6 +189,23 @@ def natural_key(string_):
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", string_)]
 
 
+def slot_number(filename):
+    """The card slot a file occupies, or None when it is not in one.
+
+    The pedal only loads files named NNN_zoia_<name>.bin. A card usually also
+    holds files that are not: a hand-copied patch, a backup, a rename left
+    behind. Those sit outside the 64 slots, and asking which slot they are in
+    has no answer.
+
+    filename: The name of a file on the card, without its path.
+
+    return: The slot as an int, or None.
+    """
+
+    head = filename.split("_")[0]
+    return int(head) if head.isdigit() else None
+
+
 def hide_dotted_files(path, sd: bool = False):
     """Removes hidden files from a list of files in a directory.
 
