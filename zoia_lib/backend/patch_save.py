@@ -197,7 +197,7 @@ class PatchSave(Patch):
                                 raw_bin = bin_file.read()
                             self.save_to_backend((raw_bin, patch[1]))
                             diff = True
-                    except FileNotFoundError or errors.SavingError:
+                    except (FileNotFoundError, errors.SavingError):
                         pass
                 # Cleanup and finish.
                 shutil.rmtree(os.path.join(self.back_path, "temp"))
@@ -236,7 +236,7 @@ class PatchSave(Patch):
                         os.path.join(pch, "{}.json".format(pch_id)),
                         os.path.join(pch, "{}_v1.json".format(pch_id)),
                     )
-                except FileNotFoundError or FileExistsError:
+                except (FileNotFoundError, FileExistsError):
                     raise errors.RenamingError(patch, 601)
                 # Update the revision number in the metadata.
                 # (Used for sorting purposes).
