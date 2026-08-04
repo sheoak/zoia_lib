@@ -189,15 +189,33 @@ class PatchSave(Patch):
                 # For each binary file, call the method again
                 # and see if the data has been changed.
                 diff = False
-                for file in os.listdir(os.path.join(self.back_path, "temp")):
+                temp_dir = os.path.join(self.back_path, "temp")
+                for file in os.listdir(temp_dir):
                     try:
                         # We only care about .bin files.
                         if file.split(".")[-1] == "bin":
-                            with open(file, "rb") as bin_file:
+                            # os.listdir gives bare names, so the path has to be
+                            # rebuilt: opening `file` alone resolved it against
+                            # the working directory and raised FileNotFoundError
+                            # for every entry, which the broken except below
+                            # swallowed - leaving diff False and the whole
+                            # archive reported as already saved.
+                            with open(os.path.join(temp_dir, file), "rb") as bin_file:
                                 raw_bin = bin_file.read()
-                            self.save_to_backend((raw_bin, patch[1]))
+                            # Tell the recursive call it is handling a bare
+                            # binary. Passing the archive's own metadata sent it
+                            # straight back into this branch, where os.mkdir on
+                            # the temp directory we are still using raised
+                            # FileExistsError.
+                            bin_meta = dict(patch[1])
+                            bin_meta["files"] = [dict(patch[1]["files"][0])]
+                            bin_meta["files"][0]["filename"] = file
+                            self.save_to_backend((raw_bin, bin_meta))
                             diff = True
                     except (FileNotFoundError, errors.SavingError):
+                        # A binary already stored is not a failure: it simply
+                        # did not change. Only a difference makes this an
+                        # update, so diff stays as it is.
                         pass
                 # Cleanup and finish.
                 shutil.rmtree(os.path.join(self.back_path, "temp"))
