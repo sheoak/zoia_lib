@@ -378,15 +378,21 @@ class PatchSave(Patch):
             files = [path]
             count = 1
 
+        imported = 0
+
         for i in range(count):
+            if version and not files[i].lower().endswith(".bin"):
+                # A version history holds patches. Anything else sitting next
+                # to them - a readme, a stray sample - is not one, and feeding
+                # it to save_to_backend only produced a failure reported under
+                # the name of the folder.
+                continue
             if not version:
                 # Since this is not a version, we need a unique id for each
                 # patch.
                 patch_id = self._generate_patch_id(files[i])
             # Get the bytes.
             temp_path = files[i]
-            # if temp_path.split(".")[-1] != "bin":
-            #     continue
             with open(temp_path, "rb") as f:
                 temp_data = f.read()
 
@@ -476,19 +482,19 @@ class PatchSave(Patch):
             else:
                 try:
                     self.save_to_backend((temp_data, js_data), version=True)
-                except errors.SavingError as e:
+                except errors.SavingError:
+                    # Name the file that failed, not the folder: the title of a
+                    # version import is derived from the directory, so every
+                    # failure used to be reported under the same name. Reading
+                    # the exception's args also avoids picking its message
+                    # apart, which raised IndexError of its own whenever the
+                    # error carried a single argument.
                     fails += 1
-                    e = (
-                        str(e)
-                        .split("(")[1]
-                        .split(")")[0]
-                        .split(",")[0]
-                        .replace("'", "")
-                    )
-                    errs.append(e)
+                    errs.append(os.path.basename(files[i]))
                     continue
+            imported += 1
 
-        return count - 1, fails, errs
+        return imported, fails, errs
 
     def _patch_decompress(self, patch):
         """Method stub for decompressing files retrieved from the PS
