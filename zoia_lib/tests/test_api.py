@@ -307,3 +307,44 @@ class TestAPI(unittest.TestCase):
 
     def test_check_for_updates(self):
         pass
+
+
+class TaxonomyRequestBoundsTest(unittest.TestCase):
+    """The licenses and categories lists must never freeze the interface.
+
+    They are resolved on first use, which happens on the UI thread when an
+    upload dialog is opened, and a bundled snapshot takes over whenever the
+    request does not work out. Inheriting the pool's 30s read timeout and its
+    two retries would stall that dialog for well over a minute before the
+    fallback was reached.
+    """
+
+    def _captured_kwargs(self, attribute):
+        fresh = _make_patch_storage()
+        with mock.patch("urllib3.PoolManager.request") as request:
+            request.return_value = mock.Mock(status=200, data=b"[]")
+            getattr(fresh, attribute)
+            self.assertEqual(request.call_count, 1)
+            return request.call_args.kwargs
+
+    def test_licenses_request_is_bounded(self):
+        kwargs = self._captured_kwargs("licenses")
+        self.assertIs(kwargs["timeout"], api.TAXONOMY_TIMEOUT)
+        self.assertIs(kwargs["retries"], False)
+
+    def test_categories_request_is_bounded(self):
+        kwargs = self._captured_kwargs("categories")
+        self.assertIs(kwargs["timeout"], api.TAXONOMY_TIMEOUT)
+        self.assertIs(kwargs["retries"], False)
+
+    def test_the_bound_is_small_enough_to_be_worth_having(self):
+        self.assertLessEqual(api.TAXONOMY_TIMEOUT.connect_timeout, 5)
+        self.assertLessEqual(api.TAXONOMY_TIMEOUT.read_timeout, 5)
+
+    def test_an_unreachable_api_still_yields_the_bundled_snapshot(self):
+        fresh = _make_patch_storage()
+        with mock.patch("urllib3.PoolManager.request") as request:
+            request.side_effect = urllib3.exceptions.MaxRetryError(None, "licenses/")
+            licenses = fresh.licenses
+        self.assertTrue(licenses)
+        self.assertTrue(all("id" in x and "name" in x for x in licenses))

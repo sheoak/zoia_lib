@@ -16,6 +16,14 @@ http = urllib3.PoolManager(
     retries=urllib3.Retry(total=2, backoff_factor=0.5, status_forcelist=(502, 503, 504)),
 )
 
+# The licenses and categories lists are resolved on first use, which happens on
+# the UI thread the first time an upload dialog is opened, and a bundled
+# snapshot takes over whenever the request does not work out. Nothing waits on
+# them, so they do not inherit the pool's generous timeout or its two retries:
+# unreachable, they would otherwise freeze the interface for well over a minute
+# before falling back.
+TAXONOMY_TIMEOUT = urllib3.Timeout(connect=2.0, read=3.0)
+
 
 class PatchStorage:
     """The PatchStorage class is responsible for all API calls to the
@@ -199,7 +207,12 @@ class PatchStorage:
         answers with an unexpected shape."""
 
         try:
-            r = http.request("GET", self.url + "licenses/?per_page=100")
+            r = http.request(
+                "GET",
+                self.url + "licenses/?per_page=100",
+                timeout=TAXONOMY_TIMEOUT,
+                retries=False,
+            )
             if r.status == 200:
                 data = json.loads(r.data)
                 if self._is_valid_taxonomy(data):
@@ -390,7 +403,12 @@ class PatchStorage:
         answers with an unexpected shape."""
 
         try:
-            r = http.request("GET", self.url + "categories/?per_page=100")
+            r = http.request(
+                "GET",
+                self.url + "categories/?per_page=100",
+                timeout=TAXONOMY_TIMEOUT,
+                retries=False,
+            )
             if r.status == 200:
                 data = json.loads(r.data)
                 if self._is_valid_taxonomy(data):
