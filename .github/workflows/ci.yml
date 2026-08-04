@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [ main, master ]
+  # Every pull request, whatever branch it targets. Restricting this to main
+  # and master meant a PR stacked on another branch got no run at all - which
+  # is where one is needed most, since the branch it builds on is not merged
+  # yet and nothing else has tested the combination.
   pull_request:
-    branches: [ main, master ]
 
 jobs:
   test:
