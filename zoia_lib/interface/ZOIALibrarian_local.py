@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from zoia_lib.backend.patch_update import PatchUpdate
-from zoia_lib.backend.utilities import hide_dotted_files, exit_after
+from zoia_lib.backend.utilities import hide_dotted_files, exit_after, slot_number
 from zoia_lib.common import errors
 
 update = PatchUpdate()
@@ -362,14 +362,19 @@ class ZOIALibrarianLocal(QMainWindow):
             # Find the first open slot in the export dir
             if len(os.listdir(export_path)) > 0:
                 bank = hide_dotted_files(export_path, sd=True)
-                slots = sorted([int(pch.split("_")[0]) for pch in bank])
+                # A card also holds files the pedal ignores - a patch copied by
+                # hand, a backup, a rename left behind - and those occupy no
+                # slot. Asking which slot they are in stopped the export dead.
+                slots = sorted(
+                    n for n in (slot_number(pch) for pch in bank) if n is not None
+                )
                 empty = list(set([x for x in range(0, 64)]) - set(slots))
                 blanks = sorted(
-                    [
-                        int(pch.split("_")[0])
-                        for pch in bank
-                        if pch.endswith("zoia_.bin")
-                    ]
+                    n
+                    for n in (
+                        slot_number(pch) for pch in bank if pch.endswith("zoia_.bin")
+                    )
+                    if n is not None
                 )
                 empty = sorted(empty + blanks)
                 if not empty:
