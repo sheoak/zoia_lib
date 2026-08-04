@@ -351,8 +351,14 @@ class PatchBinary(Patch):
         return: Updated param dict.
         """
 
-        tmp = {k: v["isParam"] for k, v in module["blocks"].items() if v["isParam"]}
-        for param, n in zip(tmp.keys(), range(0, len(tmp))):
+        # The values are stored in block order, which is the order of the block
+        # positions - not the order the index happens to list them in. The two
+        # differ for 15 modules, and there the names landed one parameter off.
+        tmp = sorted(
+            (k for k, v in module["blocks"].items() if v["isParam"]),
+            key=lambda k: module["blocks"][k]["position"],
+        )
+        for param, n in zip(tmp, range(0, len(tmp))):
             module["parameters"][param] = module["parameters"].pop(
                 "param_{}".format(n), None
             )
