@@ -19,11 +19,14 @@ class BinaryError(ZoiaLibError):
             try:
                 error_msg = {
                     101: f"Patch {patch} could not be decoded properly.",
-                    102: f"Patch could not be re-encoded ({patch}). It was "
-                    f"saved by an early firmware whose module records are "
-                    f"shorter than the current format, so rebuilding them "
-                    f"would move every field that follows. Re-save the patch "
-                    f"on the pedal to convert it.",
+                    102: f"Patch could not be re-encoded ({patch}). The pedal "
+                    f"walks the modules by the size each one declares, so a "
+                    f"record rebuilt to a different length would move every "
+                    f"field after it. The usual cause is a patch saved by an "
+                    f"early firmware, whose records are shorter than the "
+                    f"current format - re-saving it on the pedal converts it. "
+                    f"A size no record could have, such as a single word, "
+                    f"means the file itself is malformed.",
                 }[error_code_zoia]
             except KeyError:
                 error_msg = (
