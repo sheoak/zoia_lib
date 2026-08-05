@@ -304,6 +304,33 @@ class ZOIALibrarianSD(QMainWindow):
         self.ui.sd_tree.clearSelection()
         self.ui.delete_folder_sd_btn.setEnabled(False)
 
+    @staticmethod
+    def _rename_via_temp(directory, moves):
+        """Applies a batch of renames within a directory, staging every
+        file under a temporary name first.
+
+        os.rename overwrites its destination on POSIX instead of raising
+        FileExistsError, so renaming in place destroys a patch as soon as
+        one move's destination is another move's source — swapping two
+        slots holding files of the same name, for instance.
+
+        directory: The directory holding the files.
+        moves: A list of (current name, new name) pairs.
+        """
+
+        temp_moves = []
+        for i, (old_name, new_name) in enumerate(moves):
+            temp_name = "tmp_rename_{}_{}".format(i, old_name)
+            temp_path = os.path.join(directory, temp_name)
+            while os.path.exists(temp_path):
+                i += 1
+                temp_name = "tmp_rename_{}_{}".format(i, old_name)
+                temp_path = os.path.join(directory, temp_name)
+            os.rename(os.path.join(directory, old_name), temp_path)
+            temp_moves.append((temp_path, os.path.join(directory, new_name)))
+        for temp_path, new_path in temp_moves:
+            os.rename(temp_path, new_path)
+
     def _move_patch_sd(self, src, dest, insert=True):
         """Attempts to move a patch from one SD card slot to another
         Currently triggered via a QTableWidget move event.
@@ -343,31 +370,16 @@ class ZOIALibrarianSD(QMainWindow):
                     if pch[:3] == dest_str:
                         dest_pch = pch
                 if src_pch is not None and dest_pch is not None:
-                    # We are doing a swap.
-                    try:
-                        os.rename(
-                            os.path.join(self.sd_path_full, src_pch),
-                            os.path.join(self.sd_path_full, dest_str + src_pch[3:]),
-                        )
-                        os.rename(
-                            os.path.join(self.sd_path_full, dest_pch),
-                            os.path.join(self.sd_path_full, src_str + dest_pch[3:]),
-                        )
-                    except FileExistsError:
-                        # Swapping files that are named the same thing.
-                        os.rename(
-                            os.path.join(self.sd_path_full, src_pch),
-                            os.path.join(self.sd_path_full, "064" + src_pch[3:]),
-                        )
-                        # Swapping files that are named the same thing.
-                        os.rename(
-                            os.path.join(self.sd_path_full, dest_pch),
-                            os.path.join(self.sd_path_full, src_str + dest_pch[3:]),
-                        )
-                        os.rename(
-                            os.path.join(self.sd_path_full, "064" + src_pch[3:]),
-                            os.path.join(self.sd_path_full, dest_str + src_pch[3:]),
-                        )
+                    # We are doing a swap. Each patch keeps its own name
+                    # and only changes slot prefix, so the two new names
+                    # collide with the two old ones.
+                    self._rename_via_temp(
+                        self.sd_path_full,
+                        [
+                            (src_pch, dest_str + src_pch[3:]),
+                            (dest_pch, src_str + dest_pch[3:]),
+                        ],
+                    )
                 elif src_pch is not None:
                     # Just moving
                     os.rename(
@@ -426,26 +438,10 @@ class ZOIALibrarianSD(QMainWindow):
                     continue
                 prefix = "00{}".format(new_index) if new_index < 10 else "0{}".format(new_index)
                 new_name = prefix + filename[3:]
-                moves.append(
-                    (
-                        os.path.join(self.sd_path_full, filename),
-                        os.path.join(self.sd_path_full, new_name),
-                    )
-                )
+                moves.append((filename, new_name))
 
             if moves:
-                temp_moves = []
-                for i, (old_path, new_path) in enumerate(moves):
-                    temp_name = "tmp_rename_{}_{}".format(i, os.path.basename(old_path))
-                    temp_path = os.path.join(self.sd_path_full, temp_name)
-                    while os.path.exists(temp_path):
-                        i += 1
-                        temp_name = "tmp_rename_{}_{}".format(i, os.path.basename(old_path))
-                        temp_path = os.path.join(self.sd_path_full, temp_name)
-                    os.rename(old_path, temp_path)
-                    temp_moves.append((temp_path, new_path))
-                for temp_path, new_path in temp_moves:
-                    os.rename(temp_path, new_path)
+                self._rename_via_temp(self.sd_path_full, moves)
 
         self._set_data_sd()
         dest_i = dest

@@ -100,19 +100,16 @@ class PatchExport(Patch):
         name = base + ext
 
         try:
-            if -1 < slot < 10:
-                # one digit
-                name = "00{}_".format(slot) + name
-            elif slot >= 10 < 64:
-                # two digits
-                name = "0{}_".format(slot) + name
-            elif slot < 0:
+            if slot < 0:
                 # No slot, not going to an sd card, no need for digits.
                 pass
+            elif slot < 64:
+                # The pedal reads three digits, whatever the slot.
+                name = "{:03d}_".format(slot) + name
             else:
                 # Incorrect slot number provided.
                 raise errors.ExportingError(slot, 701)
-        except FileNotFoundError or FileExistsError:
+        except (FileNotFoundError, FileExistsError):
             pass
 
         # Add the file extension if need be.
@@ -133,7 +130,7 @@ class PatchExport(Patch):
                     os.path.join(self.back_path, "Samples", idx), os.path.join(os.path.dirname(dest), idx),
                     dirs_exist_ok=True
                 )
-        except FileNotFoundError or FileExistsError:
+        except (FileNotFoundError, FileExistsError):
             raise errors.ExportingError(patch)
 
     def export_bank(self, bank, dest, name, overwrite=False):
@@ -181,19 +178,19 @@ class PatchExport(Patch):
 
                 for slot in empty:
                     try:
-                        if -1 < slot < 10:
-                            # one digit
-                            blank_name = "00{}_zoia_.bin".format(slot)
-                        elif slot >= 10 < 64:
-                            # two digits
-                            blank_name = "0{}_zoia_.bin".format(slot)
-                        elif slot < 0:
-                            # No slot, not going to an sd card, no need for digits.
-                            pass
+                        if slot < 0:
+                            # No slot, so there is nothing to fill in. Skipping
+                            # is what keeps blank_name from being unbound on a
+                            # first pass, or left over from the slot before -
+                            # which wrote a second blank over that one.
+                            continue
+                        elif slot < 64:
+                            # The pedal reads three digits, whatever the slot.
+                            blank_name = "{:03d}_zoia_.bin".format(slot)
                         else:
                             # Incorrect slot number provided.
                             raise errors.ExportingError(slot, 701)
-                    except FileNotFoundError or FileExistsError:
+                    except (FileNotFoundError, FileExistsError):
                         pass
 
                     with open(os.path.join(dest, name, blank_name), "wb") as f:

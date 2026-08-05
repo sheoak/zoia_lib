@@ -41,9 +41,12 @@ class ZOIALibrarianPS(QMainWindow):
         self.worker_dwn = DownloadAllWorker(self.ui, self.save, self.api)
         self.worker_dwn.signal.connect(self._download_all_done)
         self.worker_dwn.signal_2.connect(self._download_all_progress)
+        self.worker_dwn.signal_3.connect(self._download_all_mark_done)
+        self.worker_dwn.signal_4.connect(self._download_all_failed)
 
         self.worker_ps = ReloadPSWorker(self.path, self.api)
         self.worker_ps.signal.connect(self._reload_ps_done)
+        self.worker_ps.signal_2.connect(self._reload_ps_failed)
 
     def metadata_init(self):
         """Retrieves all PS metadata via API calls."""
@@ -143,6 +146,24 @@ class ZOIALibrarianPS(QMainWindow):
         self.msg.setStandardButtons(QMessageBox.Ok)
         self.msg.exec_()
 
+    def _reload_ps_failed(self, err):
+        """Notifies the user that the PatchStorage patch list could not
+        be refreshed.
+
+        err: A string describing why the refresh failed.
+        """
+
+        self.ui.btn_dwn_all.setEnabled(True)
+        self.ui.refresh_pch_btn.setEnabled(True)
+        self.ui.statusbar.showMessage("API connection failed.", timeout=5000)
+        self.msg.setWindowTitle("API Error")
+        self.msg.setIcon(QMessageBox.Information)
+        self.msg.setText("Failed to retrieve the patch list from PatchStorage.")
+        self.msg.setDetailedText(err)
+        self.msg.setStandardButtons(QMessageBox.Ok)
+        self.msg.exec_()
+        self.msg.setDetailedText(None)
+
     def download_all_thread(self):
         """Initializes a Worker thread to manage the downloading of
         all ZOIA patches currently hosted on PatchStorage.
@@ -171,6 +192,41 @@ class ZOIALibrarianPS(QMainWindow):
             ),
             timeout=5000,
         )
+
+    def _download_all_mark_done(self, i):
+        """Marks a patch as downloaded once the worker saved it.
+        Done here rather than in the worker so that the table is only
+        ever touched from the main thread.
+
+        i: The row of the patch that was downloaded.
+        """
+
+        btn = self.ui.table_PS.cellWidget(i, 4)
+        if btn is not None:
+            btn.setEnabled(False)
+            btn.setText("Downloaded")
+
+    def _download_all_failed(self, err):
+        """Notifies the user that the download of all patches was cut
+        short by an unexpected error.
+
+        err: A string describing why the download stopped.
+        """
+
+        self.ui.statusbar.showMessage("API connection failed.", timeout=5000)
+        self.msg.setWindowTitle("API Error")
+        self.msg.setIcon(QMessageBox.Information)
+        self.msg.setText("Failed to download the patches from PatchStorage.")
+        self.msg.setDetailedText(err)
+        self.msg.setStandardButtons(QMessageBox.Ok)
+        self.msg.exec_()
+        self.msg.setDetailedText(None)
+
+        # Re-enable the necessary UI components.
+        self.ui.btn_dwn_all.setEnabled(True)
+        self.ui.refresh_pch_btn.setEnabled(True)
+        self.ui.check_for_updates_btn.setEnabled(True)
+        self.ui.searchbar_PS.setEnabled(True)
 
     def _download_all_done(self, cnt, fails):
         """Notifies the user once all PatchStorage patches have been
@@ -286,6 +342,8 @@ class DownloadAllWorker(QThread):
     # UI communication
     signal = QtCore.Signal(int, int)
     signal_2 = QtCore.Signal(int)
+    signal_3 = QtCore.Signal(int)
+    signal_4 = QtCore.Signal(str)
 
     def __init__(self, ui, save, api):
         """Initializes the thread.
@@ -319,23 +377,23 @@ class DownloadAllWorker(QThread):
                     # Try to download the patch.
                     try:
                         self.save.save_to_backend(self.api.download(btn.objectName()))
-                        btn.setEnabled(False)
-                        btn.setText("Downloaded")
                         self.cnt += 1
+                        self.signal_3.emit(i)
                     except errors.SavingError:
+                        self.fails += 1
+                    except Exception as e:
+                        # A single bad patch must not stop the batch.
+                        print(
+                            "Could not download patch {}: {}".format(
+                                btn.objectName(), e
+                            )
+                        )
                         self.fails += 1
                     self.signal_2.emit(i)
             self.signal.emit(self.cnt, self.fails)
         except Exception as e:
-            # Let the user know the API failed.
-            self.ui.statusbar.showMessage("API connection failed.", timeout=5000)
-            self.msg.setWindowTitle("API Error")
-            self.msg.setIcon(QMessageBox.Information)
-            self.msg.setText("Failed to download the patch from PatchStorage.")
-            self.msg.setDetailedText(str(e))
-            self.msg.setStandardButtons(QMessageBox.Ok)
-            self.msg.exec_()
-            self.msg.setDetailedText(None)
+            # Let the user know, from the main thread, that we gave up.
+            self.signal_4.emit(str(e))
 
 
 class ReloadPSWorker(QThread):
@@ -346,6 +404,7 @@ class ReloadPSWorker(QThread):
 
     # UI communication
     signal = QtCore.Signal()
+    signal_2 = QtCore.Signal(str)
 
     def __init__(self, path, api):
         """Initializes the thread.
@@ -370,12 +429,5 @@ class ReloadPSWorker(QThread):
                 f.write(json.dumps(self.api.get_all_patch_data_init()))
             self.signal.emit()
         except Exception as e:
-            # Let the user know the API failed.
-            self.ui.statusbar.showMessage("API connection failed.", timeout=5000)
-            self.msg.setWindowTitle("API Error")
-            self.msg.setIcon(QMessageBox.Information)
-            self.msg.setText("Failed to download the patch from PatchStorage.")
-            self.msg.setDetailedText(str(e))
-            self.msg.setStandardButtons(QMessageBox.Ok)
-            self.msg.exec_()
-            self.msg.setDetailedText(None)
+            # Let the user know, from the main thread, that the API failed.
+            self.signal_2.emit(str(e))

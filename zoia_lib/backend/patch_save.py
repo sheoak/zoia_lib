@@ -189,15 +189,33 @@ class PatchSave(Patch):
                 # For each binary file, call the method again
                 # and see if the data has been changed.
                 diff = False
-                for file in os.listdir(os.path.join(self.back_path, "temp")):
+                temp_dir = os.path.join(self.back_path, "temp")
+                for file in os.listdir(temp_dir):
                     try:
                         # We only care about .bin files.
                         if file.split(".")[-1] == "bin":
-                            with open(file, "rb") as bin_file:
+                            # os.listdir gives bare names, so the path has to be
+                            # rebuilt: opening `file` alone resolved it against
+                            # the working directory and raised FileNotFoundError
+                            # for every entry, which the broken except below
+                            # swallowed - leaving diff False and the whole
+                            # archive reported as already saved.
+                            with open(os.path.join(temp_dir, file), "rb") as bin_file:
                                 raw_bin = bin_file.read()
-                            self.save_to_backend((raw_bin, patch[1]))
+                            # Tell the recursive call it is handling a bare
+                            # binary. Passing the archive's own metadata sent it
+                            # straight back into this branch, where os.mkdir on
+                            # the temp directory we are still using raised
+                            # FileExistsError.
+                            bin_meta = dict(patch[1])
+                            bin_meta["files"] = [dict(patch[1]["files"][0])]
+                            bin_meta["files"][0]["filename"] = file
+                            self.save_to_backend((raw_bin, bin_meta))
                             diff = True
-                    except FileNotFoundError or errors.SavingError:
+                    except (FileNotFoundError, errors.SavingError):
+                        # A binary already stored is not a failure: it simply
+                        # did not change. Only a difference makes this an
+                        # update, so diff stays as it is.
                         pass
                 # Cleanup and finish.
                 shutil.rmtree(os.path.join(self.back_path, "temp"))
@@ -236,7 +254,7 @@ class PatchSave(Patch):
                         os.path.join(pch, "{}.json".format(pch_id)),
                         os.path.join(pch, "{}_v1.json".format(pch_id)),
                     )
-                except FileNotFoundError or FileExistsError:
+                except (FileNotFoundError, FileExistsError):
                     raise errors.RenamingError(patch, 601)
                 # Update the revision number in the metadata.
                 # (Used for sorting purposes).
@@ -378,15 +396,21 @@ class PatchSave(Patch):
             files = [path]
             count = 1
 
+        imported = 0
+
         for i in range(count):
+            if version and not files[i].lower().endswith(".bin"):
+                # A version history holds patches. Anything else sitting next
+                # to them - a readme, a stray sample - is not one, and feeding
+                # it to save_to_backend only produced a failure reported under
+                # the name of the folder.
+                continue
             if not version:
                 # Since this is not a version, we need a unique id for each
                 # patch.
                 patch_id = self._generate_patch_id(files[i])
             # Get the bytes.
             temp_path = files[i]
-            # if temp_path.split(".")[-1] != "bin":
-            #     continue
             with open(temp_path, "rb") as f:
                 temp_data = f.read()
 
@@ -476,19 +500,19 @@ class PatchSave(Patch):
             else:
                 try:
                     self.save_to_backend((temp_data, js_data), version=True)
-                except errors.SavingError as e:
+                except errors.SavingError:
+                    # Name the file that failed, not the folder: the title of a
+                    # version import is derived from the directory, so every
+                    # failure used to be reported under the same name. Reading
+                    # the exception's args also avoids picking its message
+                    # apart, which raised IndexError of its own whenever the
+                    # error carried a single argument.
                     fails += 1
-                    e = (
-                        str(e)
-                        .split("(")[1]
-                        .split(")")[0]
-                        .split(",")[0]
-                        .replace("'", "")
-                    )
-                    errs.append(e)
+                    errs.append(os.path.basename(files[i]))
                     continue
+            imported += 1
 
-        return count - 1, fails, errs
+        return imported, fails, errs
 
     def _patch_decompress(self, patch):
         """Method stub for decompressing files retrieved from the PS
@@ -515,8 +539,19 @@ class PatchSave(Patch):
             name_zip = os.path.join(pch, "{}.zip".format(patch_id))
             with open(name_zip_tmp, "wb") as f:
                 f.write(patch[0])
-            self._remove_bad_filename(name_zip_tmp, name_zip)
+            try:
+                self._remove_bad_filename(name_zip_tmp, name_zip)
+            except zipfile.BadZipFile:
+                os.remove(name_zip_tmp)
+                shutil.rmtree(pch, ignore_errors=True)
+                raise errors.SavingError(patch[1]["title"], 506)
             os.remove(name_zip_tmp)
+
+            if not os.path.exists(name_zip):
+                # The archive held no .bin or sample files, so there is
+                # nothing for us to save.
+                shutil.rmtree(pch, ignore_errors=True)
+                raise errors.SavingError(patch[1]["title"], 501)
 
             with zipfile.ZipFile(
                 os.path.join(pch, "{}.zip".format(patch_id)), "r"
@@ -584,8 +619,12 @@ class PatchSave(Patch):
         for file in os.listdir(pch):
             if os.path.isdir(os.path.join(pch, file)) and file == "__MACOSX":
                 shutil.rmtree(os.path.join(pch, file))
-            if file == '.DS_Store' or file == '._.DS_Store':
-                os.remove(file)
+            elif os.path.isfile(os.path.join(pch, file)) and (
+                file == '.DS_Store' or file.startswith('._')
+            ):
+                # .DS_Store and the AppleDouble resource forks that come
+                # along with samples zipped up on macOS.
+                os.remove(os.path.join(pch, file))
 
         new_dir = False
         for file in os.listdir(pch):
@@ -628,10 +667,13 @@ class PatchSave(Patch):
                         )
                         patch[1]["files"][0]["filename"] = name
                         self.save_metadata_json(patch[1], i)
-                    except FileNotFoundError or FileExistsError:
+                    except (FileNotFoundError, FileExistsError):
                         raise errors.RenamingError(patch, 601)
-                else:
-                    # Remove any additional files.
+                elif not file.endswith(tuple(accepted_files)) and not os.path.isdir(
+                    os.path.join(pch, file)
+                ):
+                    # Remove any additional files. Samples and the
+                    # directories that may hold them are dealt with below.
                     # TODO make this better. Shouldn't just delete
                     #  additional files. Especially .txt, would want to
                     #  add that to the content attribute in the JSON.
@@ -646,15 +688,15 @@ class PatchSave(Patch):
             for file in wav_files:
                 if file.split(".")[-1] == "wav" or file.split(".")[-1] == "WAV":
                     try:
-                        name = file.split("/")[-1].split(".")[0]
+                        name = os.path.basename(file).split(".")[0]
                         shutil.copy(
                             file,
                             os.path.join(self.back_path, "Samples", patch_id,
                                              "{}.wav".format(name))
                         )
                         os.remove(os.path.join(pch, file))
-                    except FileNotFoundError or FileExistsError:
-                        raise errors.SavingError(patch, 501)
+                    except (FileNotFoundError, FileExistsError):
+                        raise errors.SavingError(patch[1]["title"], 501)
                 else:
                     os.remove(os.path.join(pch, file))
 
@@ -665,8 +707,8 @@ class PatchSave(Patch):
                                 os.path.join(self.back_path, "Samples", patch_id),
                                 dirs_exist_ok=True)
                 shutil.rmtree(os.path.join(pch, new_dir))
-            except FileNotFoundError or FileExistsError:
-                raise errors.SavingError(patch, 501)
+            except (FileNotFoundError, FileExistsError):
+                raise errors.SavingError(patch[1]["title"], 501)
 
         if to_delete is not None:
             # We need to cleanup.
