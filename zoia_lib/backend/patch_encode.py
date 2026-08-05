@@ -39,8 +39,9 @@ class PatchEncoder(Patch):
         ================================================================
         """
 
-        # The output file is only opened once the whole patch has been built,
-        # so a failure part-way through cannot truncate an existing patch.
+        file = None
+        if output_path:
+            file = open(output_path, "w+b")
         color_dict = {
             "Blue": 1,
             "Green": 2,
@@ -77,7 +78,7 @@ class PatchEncoder(Patch):
             module_size = self.encode_value(module["size"], 4)
             module_type = self.encode_value(module["mod_idx"], 4)
             module_version = self.encode_value(module["version"], 4)
-            module_page = self.encode_value(module.get("page_raw", module["page"]), 4)
+            module_page = self.encode_value(module["page"], 4)
             module_color_id = module.get("header_color_id")
             if module_color_id is None:
                 module_color_id = color_dict[module["color"]]
@@ -141,24 +142,6 @@ class PatchEncoder(Patch):
             module_array.extend(module_saved_data)
             module_array.extend(module_name)
 
-            # The record above is rebuilt in the current module format, but the
-            # header still declares the size the file came with. Early firmwares
-            # wrote shorter records - they carry no name field, for instance - so
-            # ours can overrun what it claims to be. The pedal walks the modules
-            # by that declared size, which would put every field after this
-            # module at the wrong offset: refuse rather than write a patch that
-            # reads back as something else.
-            if len(module_array) != module["size"] * 4:
-                raise errors.BinaryError(
-                    "module {} ({}): {} bytes rebuilt against {} declared".format(
-                        module.get("number"),
-                        module.get("type"),
-                        len(module_array),
-                        module["size"] * 4,
-                    ),
-                    102,
-                )
-
             # Add the module byte array to the modules byte array, by first
             # appending the size of the module, then the module pch
             modules_array.extend(module_array)
@@ -169,17 +152,12 @@ class PatchEncoder(Patch):
         connections_array = bytearray()
         connection_count_array = self.encode_value(pch["meta"]["n_connections"], 4)
         connections_array.extend(connection_count_array)
-        # Patches predating the per-module colour section carry none, and the
-        # pedal reads this section in preference to the header colours: writing
-        # one built from what the parser found past the end of such a file sets
-        # every module to colour 0, and the patch loads uncoloured.
-        if pch.get("colors_present", True):
-            for module, color_id in self._iter_colors(pch):
-                if isinstance(color_id, str):
-                    color_value = color_dict[color_id]
-                else:
-                    color_value = color_id
-                colors_array.extend(self.encode_value(color_value, 4))
+        for module, color_id in self._iter_colors(pch):
+            if isinstance(color_id, str):
+                color_value = color_dict[color_id]
+            else:
+                color_value = color_id
+            colors_array.extend(self.encode_value(color_value, 4))
 
         for connection in pch["connections"]:
             connection_array = bytearray()
@@ -198,7 +176,16 @@ class PatchEncoder(Patch):
                 source_block = int(source_values[1])
                 dest_module = int(dest_values[0])
                 dest_block = int(dest_values[1])
-                strength_value = int(round(connection["strength"] * 100, 0))
+                # The field is logarithmic - 2000 raw units to a decade - so
+                # percent * 100 asks for something between a hundred and a
+                # thousand times quieter than intended everywhere except at 100%,
+                # where raw 10000 happens to be right.
+                percent = connection["strength"]
+                strength_value = (
+                    int(round(10000 + 2000 * math.log10(percent / 100)))
+                    if percent > 0
+                    else 0
+                )
 
             source_module_number_array = self.encode_value(int(source_module), 4)
             source_output_number_array = self.encode_value(int(source_block), 4)
@@ -217,18 +204,12 @@ class PatchEncoder(Patch):
         # Build out the byte array for the pages by first calculating the number of pages,
         # then looping over them and pulling out the names
         pages_array = bytearray()
-        # Prefer the count and names read from the file: the display list is
-        # trimmed to the last page in use, and writing that back would drop
-        # the name of any page without modules on it.
-        pages_count = pch.get(
-            "pages_count_raw", pch.get("pages_count", pch["meta"]["n_pages"])
-        )
-        page_names = pch.get("pages_raw") or pch.get("pages", [])
+        pages_count = pch.get("pages_count", pch["meta"]["n_pages"])
         pages_count_array = self.encode_value(pages_count, 4)
         pages_array.extend(pages_count_array)
-        for i in range(pages_count):
-            name = page_names[i] if i < len(page_names) else ""
-            pages_array.extend(self.encode_text(name, 16))
+        for page in pch["pages"][:pages_count]:
+            page_array = self.encode_text(page, 16)
+            pages_array.extend(page_array)
 
         # Build out the byte array for starred params by first calculating the number
         # of starred params, then looping over them and pulling out the values to be
@@ -239,11 +220,7 @@ class PatchEncoder(Patch):
         for starred_param in pch["starred"]:
             starred_module_array = self.encode_value(starred_param["module"], 2)
 
-            if "block_raw" in starred_param:
-                starred_block_midi_array = self.encode_value(
-                    starred_param["block_raw"], 2
-                )
-            elif starred_param["midi_cc"] == "None":
+            if starred_param["midi_cc"] == "None":
                 starred_block_midi_array = self.encode_value(starred_param["block"], 2)
             else:
                 cc = 128 * (starred_param["midi_cc"]+1) + starred_param["block"]
@@ -273,20 +250,14 @@ class PatchEncoder(Patch):
         padding = bytearray(b"\x00" * int(padding_length))
         file_array.extend(padding)
 
-        if output_path:
-            with open(output_path, "wb") as file:
-                file.write(file_array)
+        if file:
+            file.write(file_array)
+            file.close()
 
         return file_array
 
     @staticmethod
     def _get_options_bytes(module):
-        # The raw bytes win: the module index does not describe every option a
-        # module can carry, and rebuilding from the named ones loses the rest.
-        options_raw = module.get("options_raw")
-        if isinstance(options_raw, (list, tuple)):
-            return list(options_raw)[:8]
-
         options_binary = module.get("options_binary", {})
         if isinstance(options_binary, (list, tuple)):
             return list(options_binary)[:8]
@@ -420,16 +391,10 @@ class PatchEncoder(Patch):
         # which is sequential and left-aligned
         if text is None:
             text = ""
-
-        # The field is a fixed number of BYTES, so truncate the encoded form,
-        # not the string: a non-ASCII character costs more than one byte.
-        data = text.encode("utf-8")
-        if len(data) > byte_array_length:
-            data = data[:byte_array_length]
-            # Drop a multi-byte character the cut landed in the middle of.
-            data = data.decode("utf-8", "ignore").encode("utf-8")
-
-        format_string = "{}B{}x".format(len(data), byte_array_length - len(data))
+        if len(text) > byte_array_length:
+            text = text[:byte_array_length]
+        format_string = "{}B{}x".format(len(text), byte_array_length - len(text))
+        data = list(text.encode())
 
         return bytearray(struct.pack(format_string, *data))
 
@@ -437,25 +402,6 @@ class PatchEncoder(Patch):
     def encode_value(value, byte_array_length):
         # Helper function used to handle non-text encoding, which is little-endian
         # and left-aligned
-
-        # A star placed on a connection is stored as a negative module index,
-        # so this field has to carry signed values too. log() would raise on
-        # them, and an unsigned format cannot represent them.
-        if value < 0:
-            if -32768 <= value <= 32767:
-                signed_format, signed_bytes = "h", 2
-            elif -(2 ** 31) <= value < 2 ** 31:
-                signed_format, signed_bytes = "i", 4
-            else:
-                signed_format, signed_bytes = "q", 8
-            if signed_bytes > byte_array_length:
-                raise errors.BinaryError(None)
-            return bytearray(
-                struct.pack(
-                    "<{}{}x".format(signed_format, byte_array_length - signed_bytes),
-                    value,
-                )
-            )
 
         # Determine the number of bits required to encode the value
         # log of 0 is undefined, so account for the edge case

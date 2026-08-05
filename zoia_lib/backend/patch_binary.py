@@ -1,4 +1,5 @@
 import json
+import math
 import struct
 
 from zoia_lib.backend.patch import Patch
@@ -207,7 +208,7 @@ class PatchBinary(Patch):
                 "destination": "{}.{}".format(
                     int(data[curr_step + 3]), int(data[curr_step + 4])
                 ),
-                "strength": int(data[curr_step + 5] / 100),
+                "strength": self.strength_percent(int(data[curr_step + 5])),
                 "source_raw": int(data[curr_step + 1]),
                 "source_block_raw": int(data[curr_step + 2]),
                 "dest_raw": int(data[curr_step + 3]),
@@ -362,6 +363,34 @@ class PatchBinary(Patch):
             module["parameters"][param] = module["parameters"].pop(
                 "param_{}".format(n), None
             )
+
+    @staticmethod
+    def strength_percent(strength_raw):
+        """Converts a stored connection strength into the percentage the pedal shows.
+
+        The field is logarithmic, 2000 raw units to a decade:
+
+            percent = 100 * 10 ** ((strength_raw - 10000) / 2000)
+
+        so raw 10000 is 100%, 9398 is 50%, 8000 is 10%, and the ceiling raw 11200 is
+        398.1%. Reading it as raw / 100 - as this did - describes a connection the
+        pedal applies at 1% as "60", and the error is invisible at full strength
+        because raw 10000 divided by 100 is also 100.
+        """
+
+        if strength_raw <= 0:
+            return 0.0
+        # three decimals: the pedal shows one, but the bottom of the scale
+        # reaches thousandths of a percent and those must not round to zero.
+        return round(100 * 10 ** ((strength_raw - 10000) / 2000), 3)
+
+    @staticmethod
+    def strength_raw(percent):
+        """The inverse: the value to store for a percentage the pedal will show."""
+
+        if percent <= 0:
+            return 0
+        return int(round(10000 + 2000 * math.log10(percent / 100)))
 
     @staticmethod
     def _get_block_name(blocks, number):
