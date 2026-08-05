@@ -1,4 +1,5 @@
 import json
+import math
 import struct
 
 from zoia_lib.backend.patch import Patch
@@ -60,6 +61,11 @@ class PatchBinary(Patch):
         if byt is None:
             raise errors.BinaryError(None)
 
+        # Anything shorter than the header cannot be a patch; without this the
+        # unpacking below fails with an IndexError far from the real cause.
+        if len(byt) < 24:
+            raise errors.BinaryError(byt, 101)
+
         # Extract the string name of the patch.
         name = self._qc_name(byt[4:])
 
@@ -70,6 +76,9 @@ class PatchBinary(Patch):
         # Get a list of colors for the modules
         # (appears at the end of the binary)
         temp = [i for i, e in enumerate(data) if e != 0]
+        # An all-zero file has no last word to anchor the colour section to.
+        if not temp:
+            raise errors.BinaryError(byt, 101)
         last_color = temp[-1] + 1
         first_color = last_color - int(data[5])
         colors = []
@@ -103,6 +112,7 @@ class PatchBinary(Patch):
                 "size_of_saveable_data": data[curr_step + 7],
                 "version": data[curr_step + 2],
                 "page": page,
+                "page_raw": page_raw,
                 "position": [
                     x
                     for x in range(
@@ -157,7 +167,13 @@ class PatchBinary(Patch):
                     if not opt:
                         continue
                     option = curr_module["options_list"][v]
-                    value = curr_module["options_copy"][opt][option]
+                    choices = curr_module["options_copy"][opt]
+                    # The firmware may offer a choice this index does not list -
+                    # Cabinet Sim stores channels = 2 against two named values.
+                    # Keep the raw number rather than refusing the whole patch:
+                    # options_raw carries the bytes back to the encoder, so the
+                    # round-trip stays exact whether or not we can name it.
+                    value = choices[option] if 0 <= option < len(choices) else option
                     curr_module["options"][opt] = value
                     curr_module["options_binary"][opt] = option
                     v += 1
@@ -175,7 +191,9 @@ class PatchBinary(Patch):
             curr_module.pop("new_color", None)
             curr_module.pop("old_color", None)
             curr_module.pop("options_copy", None)
-            curr_module.pop("options_list", None)
+            # Keep the raw option bytes: the module index does not describe
+            # every option, and the encoder must be able to put them back.
+            curr_module["options_raw"] = curr_module.pop("options_list")
 
             modules.append(curr_module)
             curr_step += size
@@ -190,7 +208,7 @@ class PatchBinary(Patch):
                 "destination": "{}.{}".format(
                     int(data[curr_step + 3]), int(data[curr_step + 4])
                 ),
-                "strength": int(data[curr_step + 5] / 100),
+                "strength": self.strength_percent(int(data[curr_step + 5])),
                 "source_raw": int(data[curr_step + 1]),
                 "source_block_raw": int(data[curr_step + 2]),
                 "dest_raw": int(data[curr_step + 3]),
@@ -205,13 +223,16 @@ class PatchBinary(Patch):
         # Extract the page data for each page in the patch.
         pages_count_raw = int(data[curr_step])
         for k in range(pages_count_raw):
-            if k < self.MAX_PAGES:
-                curr_page = self._qc_name(
-                    byt[(curr_step + 1) * 4: (curr_step + 1) * 4 + 16]
-                )
-                pages.append(curr_page)
+            curr_page = self._qc_name(
+                byt[(curr_step + 1) * 4: (curr_step + 1) * 4 + 16]
+            )
+            pages.append(curr_page)
             curr_step += 4
-        # Get number of pages and fill with blank strings
+        # Every name the file holds, so the encoder can put them all back. A
+        # patch may name a page that carries no module - a credits page, for
+        # instance - and those names must not be dropped.
+        pages_raw = list(pages)
+        # The list shown to the user stops at the last page in use.
         max_page = max((m["page"] for m in modules), default=0)
         n_pages = min(max_page + 1, self.MAX_PAGES)
         while len(pages) < n_pages:
@@ -229,13 +250,24 @@ class PatchBinary(Patch):
             )
             curr_param = {
                 "module": byte2[0],
+                # A star on a connection stores -1 here, which the modulo below
+                # would turn into 127, so keep what the file actually holds.
+                "block_raw": byte2[1],
                 "block": byte2[1] % 128,
-                "midi_cc": int(round(byte2[1] / 128) - 1)
-                if byte2[1] >= 128
-                else "None",
+                # The encoder packs this field as 128 * (cc + 1) + block, so the
+                # CC is the quotient. round() borrows from the block whenever it
+                # exceeds 64 and returns a CC one too high.
+                "midi_cc": byte2[1] // 128 - 1 if byte2[1] >= 128 else "None",
             }
             starred.append(curr_param)
             curr_step += 1
+
+        # A patch saved before the per-module colour section existed stops right
+        # here: its declared size accounts for the starred params and nothing
+        # more. The words read below are then padding, and writing them back as
+        # a colour section sets every module to colour 0 - the pedal prefers this
+        # section over the header colours, so the patch loads uncoloured.
+        colors_present = (pch_size - (curr_step + 1)) == len(modules)
 
         colors = []
         # Extract the colors of each module in the patch.
@@ -266,9 +298,12 @@ class PatchBinary(Patch):
             "modules": modules,
             "connections": connections,
             "pages": pages,
+            "pages_raw": pages_raw,
             "pages_count": pages_count,
+            "pages_count_raw": pages_count_raw,
             "starred": starred,
             "colors": colors,
+            "colors_present": colors_present,
             "meta": {
                 "name": name,
                 "cpu": round(sum([k["cpu"] for k in modules]), 2),
@@ -284,12 +319,17 @@ class PatchBinary(Patch):
 
     @staticmethod
     def _qc_name(name):
-        try:
-            name = str(name).split("\\")[0].split("'")[1]
-        except IndexError:
-            name = str(name).split("\\")[0]
+        """Decodes a fixed-width, NUL-padded name field.
 
-        return name.split('b"')[-1]
+        name: The raw bytes of the field.
+
+        return: The name, without its padding.
+        """
+
+        if isinstance(name, str):
+            name = name.encode("utf-8", "replace")
+
+        return bytes(name).split(b"\x00")[0].decode("utf-8", "replace")
 
     @staticmethod
     def _get_module_data(module_id, key):
@@ -312,11 +352,45 @@ class PatchBinary(Patch):
         return: Updated param dict.
         """
 
-        tmp = {k: v["isParam"] for k, v in module["blocks"].items() if v["isParam"]}
-        for param, n in zip(tmp.keys(), range(0, len(tmp))):
+        # The values are stored in block order, which is the order of the block
+        # positions - not the order the index happens to list them in. The two
+        # differ for 15 modules, and there the names landed one parameter off.
+        tmp = sorted(
+            (k for k, v in module["blocks"].items() if v["isParam"]),
+            key=lambda k: module["blocks"][k]["position"],
+        )
+        for param, n in zip(tmp, range(0, len(tmp))):
             module["parameters"][param] = module["parameters"].pop(
                 "param_{}".format(n), None
             )
+
+    @staticmethod
+    def strength_percent(strength_raw):
+        """Converts a stored connection strength into the percentage the pedal shows.
+
+        The field is logarithmic, 2000 raw units to a decade:
+
+            percent = 100 * 10 ** ((strength_raw - 10000) / 2000)
+
+        so raw 10000 is 100%, 9398 is 50%, 8000 is 10%, and the ceiling raw 11200 is
+        398.1%. Reading it as raw / 100 - as this did - describes a connection the
+        pedal applies at 1% as "60", and the error is invisible at full strength
+        because raw 10000 divided by 100 is also 100.
+        """
+
+        if strength_raw <= 0:
+            return 0.0
+        # three decimals: the pedal shows one, but the bottom of the scale
+        # reaches thousandths of a percent and those must not round to zero.
+        return round(100 * 10 ** ((strength_raw - 10000) / 2000), 3)
+
+    @staticmethod
+    def strength_raw(percent):
+        """The inverse: the value to store for a percentage the pedal will show."""
+
+        if percent <= 0:
+            return 0
+        return int(round(10000 + 2000 * math.log10(percent / 100)))
 
     @staticmethod
     def _get_block_name(blocks, number):
@@ -366,9 +440,13 @@ class PatchBinary(Patch):
             13: "Pink",
             14: "Peach",
             15: "Mango",
-        }[color_id]
+        }
 
-        return color
+        # A module can carry an id the palette does not cover: 0 means no colour
+        # was ever set. "" is what the caller already treats as unknown, and the
+        # encoder writes header_color_id and the colours list, so a name we
+        # cannot resolve costs nothing on the way back.
+        return color.get(color_id, "")
 
     def _add_connections(self, modules, connections):
         """Appends all applicable connections to each module.
@@ -407,6 +485,14 @@ class PatchBinary(Patch):
         """
 
         for star in starred:
+            # A star can be placed on a connection rather than on a module
+            # parameter, and stores -(connection index + 1). Indexing the list
+            # with it would count from the end and hand an unrelated module a
+            # favourite it does not have, so those are left to the patch-level
+            # list, where the negative index still identifies the connection.
+            if star["module"] < 0:
+                continue
+
             data = "{}.{} CC {}".format(
                 modules[star["module"]]["type"]
                 if modules[star["module"]]["name"] == ""
@@ -575,11 +661,12 @@ class PatchBinary(Patch):
             blocks.append(d[32])
             if opt[2][1] == "on":
                 blocks.append(d[33])
-            if opt[4][1] != "off":
-                blocks.append(d[34])
-                blocks.append(d[35])
+            # key_input is a MIDI mode and adds no block: the index used to list
+            # key_input_note and key_input_gate here, which pushed the eight
+            # outputs two indices late. The one corpus Sequencer with key_input
+            # on still sources from the first output's real index.
             for i in range(1, opt[1][1] + 1):
-                blocks.append(d[i + 35])
+                blocks.append(d[i + 33])
         elif idx == 5:
             blocks = []
             if opt[3][1] != "tap":
