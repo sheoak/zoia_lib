@@ -176,7 +176,16 @@ class PatchEncoder(Patch):
                 source_block = int(source_values[1])
                 dest_module = int(dest_values[0])
                 dest_block = int(dest_values[1])
-                strength_value = int(round(connection["strength"] * 100, 0))
+                # The field is logarithmic - 2000 raw units to a decade - so
+                # percent * 100 asks for something between a hundred and a
+                # thousand times quieter than intended everywhere except at 100%,
+                # where raw 10000 happens to be right.
+                percent = connection["strength"]
+                strength_value = (
+                    int(round(10000 + 2000 * math.log10(percent / 100)))
+                    if percent > 0
+                    else 0
+                )
 
             source_module_number_array = self.encode_value(int(source_module), 4)
             source_output_number_array = self.encode_value(int(source_block), 4)
