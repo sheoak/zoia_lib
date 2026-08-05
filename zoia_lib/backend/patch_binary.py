@@ -575,11 +575,12 @@ class PatchBinary(Patch):
             blocks.append(d[32])
             if opt[2][1] == "on":
                 blocks.append(d[33])
-            if opt[4][1] != "off":
-                blocks.append(d[34])
-                blocks.append(d[35])
+            # key_input is a MIDI mode and adds no block: the index used to list
+            # key_input_note and key_input_gate here, which pushed the eight
+            # outputs two indices late. The one corpus Sequencer with key_input
+            # on still sources from the first output's real index.
             for i in range(1, opt[1][1] + 1):
-                blocks.append(d[i + 35])
+                blocks.append(d[i + 33])
         elif idx == 5:
             blocks = []
             if opt[3][1] != "tap":
