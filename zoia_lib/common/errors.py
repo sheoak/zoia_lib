@@ -9,6 +9,7 @@ class BinaryError(ZoiaLibError):
 
     Possible error codes:
     - 101: Patch binary could not be read properly.
+    - 102: Patch uses a module format that cannot be rebuilt.
     """
 
     def __init__(self, patch, error_code_zoia=0):
@@ -18,6 +19,14 @@ class BinaryError(ZoiaLibError):
             try:
                 error_msg = {
                     101: f"Patch {patch} could not be decoded properly.",
+                    102: f"Patch could not be re-encoded ({patch}). The pedal "
+                    f"walks the modules by the size each one declares, so a "
+                    f"record rebuilt to a different length would move every "
+                    f"field after it. The usual cause is a patch saved by an "
+                    f"early firmware, whose records are shorter than the "
+                    f"current format - re-saving it on the pedal converts it. "
+                    f"A size no record could have, such as a single word, "
+                    f"means the file itself is malformed.",
                 }[error_code_zoia]
             except KeyError:
                 error_msg = (
