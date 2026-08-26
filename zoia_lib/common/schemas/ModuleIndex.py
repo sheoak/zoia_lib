@@ -3449,8 +3449,23 @@ module_index = {
 for k, v in list(module_index.items()):
     module_index[str(k)] = module_index.pop(k)
 
-with open("zoia_lib/common/schemas/ModuleIndex.json", "w") as f:
-    json.dump(module_index, f)
+
+def dump(path="zoia_lib/common/schemas/ModuleIndex.json"):
+    """Write the index out as JSON. Run it deliberately, never on import.
+
+    `ModuleIndex.json` is what the backend actually reads, and the two have
+    drifted: the JSON carries a dozen corrections this file never received —
+    block positions for the Sequencer, Ping Pong Delay, Delay w/Mod, Tremolo,
+    Audio In Switch and Midi Clock In, and `min_blocks` for the CV Mixer.
+
+    This used to run at import time, against a path relative to the working
+    directory. So `import zoia_lib` from the repo root silently overwrote the
+    good data with the stale data, and every patch holding one of those modules
+    stopped parsing until the file was checked out again. Fix the drift here
+    before calling this.
+    """
+    with open(path, "w") as f:
+        json.dump(module_index, f)
 
 # import json2table
 # with open("documentation/resources/mod.html", "w") as f:
