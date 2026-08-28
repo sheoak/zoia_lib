@@ -276,6 +276,14 @@ def generate_blank_patch():
     return b"\t" + b"\x00" * 32767
 
 
+# The package knows where it lives, so a repo-relative resource resolves the
+# same whatever directory the process was started from. A frozen build flips the
+# default below to is_ui=True and never reaches that branch.
+_PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+
+
 def meipass(resource, is_ui=False):
     """Helper function for the UI to find resource files."""
 
@@ -286,8 +294,11 @@ def meipass(resource, is_ui=False):
         )
         file_path = os.path.abspath(os.path.join(bundle_dir, resource))
         return file_path
-    else:
+    elif os.path.isabs(resource):
+        # startup.py already builds an absolute path; leave it alone.
         return resource
+    else:
+        return os.path.join(_PROJECT_ROOT, resource)
 
 
 def add_test_patch(name, idx, path):
