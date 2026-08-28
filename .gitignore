@@ -147,3 +147,10 @@ dmypy.json
 # documentation/resources
 .github/copilot-instructions.md
 .github/workflows/zoia_lib.code-workspace
+# Patches. This is a library, not a patch store: a .bin that is not a test
+# fixture has no business here, and one swept in by `git add -A` or a merge
+# ends up published, because this repository is public.
+*.bin
+*.bak
+*.mmd
+!zoia_lib/tests/sample_files/*.bin
