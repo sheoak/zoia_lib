@@ -1402,8 +1402,12 @@ class ZOIALibrarianMain(QMainWindow):
             options.append(label)
             label_to_id[label] = pch.get("id")
 
-        import_name = os.path.basename(path) if path else ""
-        import_name = import_name.split(".")[0].split("_zoia")[1].replace("_", " ").strip().title()
+        import_name = os.path.splitext(os.path.basename(path))[0] if path else ""
+        # Patches exported by the pedal are named "<slot>_zoia_<name>", but any
+        # .bin can be imported, so keep the whole filename when it isn't.
+        if "_zoia_" in import_name:
+            import_name = import_name.split("_zoia_", 1)[1]
+        import_name = import_name.replace("_", " ").strip().title()
         prompt = "Choose PatchStorage metadata to link to this imported patch: {}".format(
             import_name
         )
